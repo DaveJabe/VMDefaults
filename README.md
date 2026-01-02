@@ -238,7 +238,7 @@ struct ProfileView: View {
 }
 ```
 
-### Moving state into a view model
+#### Moving state into a view model
 
 Replace @AppStorage with @ObservableUserDefault.
 
