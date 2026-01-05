@@ -10,8 +10,8 @@ import Combine
 
 // MARK: - Optional detection (so we can removeObject on nil)
 
-private protocol _AnyOptional { var _isNil: Bool { get } }
-extension Optional: _AnyOptional { fileprivate var _isNil: Bool { self == nil } }
+protocol _AnyOptional { var _isNil: Bool { get } }
+extension Optional: _AnyOptional { var _isNil: Bool { self == nil } }
 
 // MARK: - Shared box
 
@@ -93,3 +93,4 @@ func _writeRaw<Value>(to defaults: UserDefaults, key: String, newValue: Value) {
         defaults.set(newValue, forKey: key)
     }
 }
+
