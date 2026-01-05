@@ -25,3 +25,14 @@ public struct DefaultsKey<Value> {
     }
 }
 
+public struct CodableDefaultsKey<Value: Codable> {
+    public let name: String
+    public let defaultValue: Value
+    public let container: UserDefaults
+    public init(_ name: String, default defaultValue: Value, container: UserDefaults = .standard) {
+        self.name = name
+        self.defaultValue = defaultValue
+        self.container = container
+    }
+}
+
