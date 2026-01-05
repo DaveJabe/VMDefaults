@@ -137,10 +137,10 @@ private final class ObservableVM<Value: Equatable & Sendable>: ObservableObject 
 /// Minimal `ObservableObject` used to test `@CodableUserDefault`.
 @MainActor
 private final class CodableVM<Value: Codable & Equatable & Sendable>: ObservableObject {
-    @CodableUserDefault var value: Value
+    @ObservableUserDefault var value: Value
 
     init(_ key: DefaultsKey<Value>) {
-        _value = CodableUserDefault(key)
+        _value = ObservableUserDefault(codable: key)
         _ = value // installs the wrapper's forwarding subscription eagerly
     }
 }
@@ -298,7 +298,7 @@ struct ObservableUserDefaultTests {
 
 // MARK: - CodableUserDefault tests
 
-@Suite("VMDefaults - CodableUserDefault")
+@Suite("VMDefaults - ObservableUserDefault (Codable)")
 struct CodableUserDefaultTests {
 
     /// Sample Codable payload used across tests.
@@ -368,6 +368,60 @@ struct CodableUserDefaultTests {
 
         let vm = CodableVM(key)
         #expect(vm.value == .init(count: 0, name: "zero"))
+    }
+}
+
+// MARK: - Non-observable accessors
+
+@Suite("VMDefaults - Non-observable accessors")
+struct DefaultsAccessorsTests {
+
+    @Test("get() returns default when missing")
+    @MainActor
+    func getReturnsDefaultWhenMissing() {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<Int>("plain.missing", default: 42, container: defaults)
+
+        #expect(key.get() == 42)
+    }
+
+    @Test("get() returns stored raw value")
+    @MainActor
+    func getReturnsStoredRawValue() {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<String?>("plain.raw", default: nil, container: defaults)
+
+        defaults.set("hello", forKey: key.name)
+        #expect(key.get() == "hello")
+    }
+
+    struct ASettings: Codable, Equatable, Sendable { var count: Int; var name: String }
+
+    @Test("get() returns default when missing or invalid")
+    @MainActor
+    func getCodableReturnsDefaultWhenMissingOrInvalid() {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<ASettings>("plain.codable.invalid", default: .init(count: 0, name: "zero"), container: defaults)
+
+        // Missing -> default
+        #expect(key.get() == .init(count: 0, name: "zero"))
+
+        // Invalid -> default
+        defaults.set(Data([0xFF, 0x00, 0x01]), forKey: key.name)
+        #expect(key.get() == .init(count: 0, name: "zero"))
+    }
+
+    @Test("get() returns decoded value")
+    @MainActor
+    func getCodableReturnsDecodedValue() throws {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<ASettings>("plain.codable.valid", default: .init(count: 0, name: "zero"), container: defaults)
+
+        let payload = ASettings(count: 7, name: "seven")
+        let data = try JSONEncoder().encode(payload)
+        defaults.set(data, forKey: key.name)
+
+        #expect(key.get() == payload)
     }
 }
 
@@ -631,3 +685,120 @@ struct VMDefaultsConcurrencyTests {
         #expect(isLocal || isExternal)
     }
 }
+
+// MARK: - Non-observable reactive APIs
+@Suite("VMDefaults - Non-observable reactive APIs")
+struct DefaultsReactiveTests {
+
+    @Test("Raw publisher emits initial and updates, with removeDuplicates")
+    @MainActor
+    func rawPublisherEmits() async {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<Int>("react.raw", default: 0, container: defaults)
+
+        var received: [Int] = []
+        let cancellable = key.distinctPublisher().sink { received.append($0) }
+
+        // Initial value
+        #expect(received == [0])
+
+        // External writes
+        defaults.set(1, forKey: key.name)
+        postDidChange(for: defaults)
+        defaults.set(1, forKey: key.name) // duplicate should be removed
+        postDidChange(for: defaults)
+        defaults.set(2, forKey: key.name)
+        postDidChange(for: defaults)
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        #expect(received == [0, 1, 2])
+        _ = cancellable // keep alive
+    }
+
+    @Test("Raw async updates emit initial and coalesced changes")
+    @MainActor
+    func rawAsyncUpdatesEmit() async {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<String?>("react.async.raw", default: nil, container: defaults)
+
+        var values: [String?] = []
+
+        let task = Task { @MainActor in
+            var iterator = key.distinctUpdates().makeAsyncIterator()
+            for _ in 0..<3 {
+                if let next = await iterator.next() { values.append(next) }
+            }
+        }
+
+        // Initial nil already yielded.
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        defaults.set("A", forKey: key.name)
+        postDidChange(for: defaults)
+        defaults.set("A", forKey: key.name) // duplicate
+        postDidChange(for: defaults)
+        defaults.set("B", forKey: key.name)
+        postDidChange(for: defaults)
+
+        _ = await task.value
+        #expect(values == [nil, "A", "B"])
+    }
+
+    struct RSettings: Codable, Equatable, Sendable { var count: Int; var name: String }
+
+    @Test("Codable publisher emits initial and updates")
+    @MainActor
+    func codablePublisherEmits() async throws {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<RSettings>("react.codable.pub", default: .init(count: 0, name: "zero"), container: defaults)
+
+        var received: [RSettings] = []
+        let cancellable = key.distinctPublisher().sink { received.append($0) }
+
+        // Initial default
+        #expect(received == [.init(count: 0, name: "zero")])
+
+        let a = RSettings(count: 1, name: "one")
+        let b = RSettings(count: 2, name: "two")
+        defaults.set(try JSONEncoder().encode(a), forKey: key.name)
+        postDidChange(for: defaults)
+        defaults.set(try JSONEncoder().encode(a), forKey: key.name) // duplicate
+        postDidChange(for: defaults)
+        defaults.set(try JSONEncoder().encode(b), forKey: key.name)
+        postDidChange(for: defaults)
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        #expect(received == [.init(count: 0, name: "zero"), a, b])
+        _ = cancellable
+    }
+
+    @Test("Codable async updates emit initial and updates")
+    @MainActor
+    func codableAsyncUpdatesEmit() async throws {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<RSettings>("react.codable.async", default: .init(count: 0, name: "zero"), container: defaults)
+
+        var values: [RSettings] = []
+
+        let task = Task { @MainActor in
+            var iterator = key.distinctUpdates().makeAsyncIterator()
+            for _ in 0..<3 {
+                if let next = await iterator.next() { values.append(next) }
+            }
+        }
+
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        let a = RSettings(count: 3, name: "three")
+        let b = RSettings(count: 4, name: "four")
+        defaults.set(try JSONEncoder().encode(a), forKey: key.name)
+        postDidChange(for: defaults)
+        defaults.set(try JSONEncoder().encode(b), forKey: key.name)
+        postDidChange(for: defaults)
+
+        _ = await task.value
+        #expect(values == [.init(count: 0, name: "zero"), a, b])
+    }
+}
+
+

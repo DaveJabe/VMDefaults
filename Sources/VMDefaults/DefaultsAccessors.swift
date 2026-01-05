@@ -1,0 +1,292 @@
+//
+//  DefaultsAccessors.swift
+//  VMDefaults
+//
+//  Created by David Jabech on 1/4/26.
+//
+
+import Foundation
+import Combine
+
+public extension DefaultsKey {
+    /// Returns the current value for this key from its container, or the key’s default if missing.
+    ///
+    /// This is a simple, non-observable accessor. It does not install any bindings or publish changes.
+    @MainActor
+    func get() -> Value {
+        _readRaw(from: container, key: name, defaultValue: defaultValue)
+    }
+}
+
+public extension DefaultsKey where Value: Codable {
+    /// Returns the current Codable value for this key by decoding JSON `Data` from its container,
+    /// or the key’s default if missing or if decoding fails.
+    ///
+    /// - Parameters:
+    ///   - decoder: A JSONDecoder to use (defaults to a new decoder).
+    ///   - onError: Optional error handler; falls back to `VMDefaultsCoding.defaultOnError`.
+    @MainActor
+    func get(
+        decoder: JSONDecoder = .init(),
+        onError: (@Sendable (Error) -> Void)? = nil
+    ) -> Value {
+        guard let data = container.data(forKey: name) else {
+            return defaultValue
+        }
+        do {
+            return try decoder.decode(Value.self, from: data)
+        } catch {
+            (onError ?? VMDefaultsCoding.defaultOnError)?(error)
+            return defaultValue
+        }
+    }
+    
+    /// Backwards-compatible alias for clarity when using Codable keys.
+    /// Delegates to `get(decoder:onError:)`.
+    @MainActor
+    func getCodable(
+        decoder: JSONDecoder = .init(),
+        onError: (@Sendable (Error) -> Void)? = nil
+    ) -> Value {
+        get(decoder: decoder, onError: onError)
+    }
+}
+
+public extension DefaultsKey where Value: Sendable {
+    /// A Combine publisher that emits the current value and subsequent updates for this key.
+    /// This is a read-only, non-observable-object stream.
+    @MainActor
+    func publisher() -> AnyPublisher<Value, Never> {
+        let containerRef = container
+        let keyName = name
+        let defaultVal = defaultValue
+        let initial = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
+        return NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification, object: containerRef)
+            .receive(on: RunLoop.main)
+            .map { _ in _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal) }
+            .prepend(initial)
+            .eraseToAnyPublisher()
+    }
+
+    /// An AsyncSequence that yields the current value and subsequent updates for this key.
+    /// Bursts of notifications are coalesced to a single yield per runloop turn.
+    @MainActor
+    func updates() -> AsyncStream<Value> {
+        let containerRef = container
+        let keyName = name
+        let defaultVal = defaultValue
+        let notifications = NotificationCenter.default.notifications(
+            named: UserDefaults.didChangeNotification,
+            object: nil
+        )
+        return AsyncStream { continuation in
+            let initial = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
+            continuation.yield(initial)
+
+            let task = Task { @MainActor in
+                var isScheduled = false
+                for await note in notifications {
+                    guard note.object as AnyObject? === containerRef else { continue }
+                    if isScheduled { continue }
+                    isScheduled = true
+                    await Task.yield() // collapse bursts into one refresh
+                    isScheduled = false
+                    let latest = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
+                    continuation.yield(latest)
+                }
+            }
+
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+public extension DefaultsKey where Value: Equatable & Sendable {
+    /// A Combine publisher that removes duplicate consecutive values.
+    @MainActor
+    func distinctPublisher() -> AnyPublisher<Value, Never> {
+        publisher().removeDuplicates().eraseToAnyPublisher()
+    }
+
+    /// An AsyncSequence that yields only when the value actually changes.
+    @MainActor
+    func distinctUpdates() -> AsyncStream<Value> {
+        let containerRef = container
+        let keyName = name
+        let defaultVal = defaultValue
+        let notifications = NotificationCenter.default.notifications(
+            named: UserDefaults.didChangeNotification,
+            object: nil
+        )
+        return AsyncStream { continuation in
+            let initial = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
+            continuation.yield(initial)
+
+            let task = Task { @MainActor in
+                var isScheduled = false
+                var last = initial
+                for await note in notifications {
+                    guard note.object as AnyObject? === containerRef else { continue }
+                    if isScheduled { continue }
+                    isScheduled = true
+                    await Task.yield()
+                    isScheduled = false
+                    let latest = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
+                    if latest != last {
+                        last = latest
+                        continuation.yield(latest)
+                    }
+                }
+            }
+
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+public extension DefaultsKey where Value: Codable & Sendable {
+    /// A Combine publisher that decodes JSON Data for this key and emits the current and future values.
+    @MainActor
+    func publisher(
+        decoder: JSONDecoder = .init(),
+        onError: (@Sendable (Error) -> Void)? = nil
+    ) -> AnyPublisher<Value, Never> {
+        let containerRef = container
+        let keyName = name
+        let defaultVal = defaultValue
+        let decode: () -> Value = {
+            if let data = containerRef.data(forKey: keyName) {
+                do { return try decoder.decode(Value.self, from: data) }
+                catch { (onError ?? VMDefaultsCoding.defaultOnError)?(error); return defaultVal }
+            } else {
+                return defaultVal
+            }
+        }
+        let initial = decode()
+        return NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification, object: containerRef)
+            .receive(on: RunLoop.main)
+            .map { _ in decode() }
+            .prepend(initial)
+            .eraseToAnyPublisher()
+    }
+
+    /// An AsyncSequence that decodes JSON Data for this key and yields the current and future values.
+    /// Bursts of notifications are coalesced to a single yield per runloop turn.
+    @MainActor
+    func updates(
+        decoder: JSONDecoder = .init(),
+        onError: (@Sendable (Error) -> Void)? = nil
+    ) -> AsyncStream<Value> {
+        let containerRef = container
+        let keyName = name
+        let defaultVal = defaultValue
+        let notifications = NotificationCenter.default.notifications(
+            named: UserDefaults.didChangeNotification,
+            object: nil
+        )
+        return AsyncStream { continuation in
+            // Initial
+            let initial: Value
+            if let data = containerRef.data(forKey: keyName) {
+                initial = (try? decoder.decode(Value.self, from: data)) ?? defaultVal
+            } else {
+                initial = defaultVal
+            }
+            continuation.yield(initial)
+
+            let task = Task { @MainActor in
+                var isScheduled = false
+                for await note in notifications {
+                    guard note.object as AnyObject? === containerRef else { continue }
+                    if isScheduled { continue }
+                    isScheduled = true
+                    await Task.yield()
+                    isScheduled = false
+                    if let data = containerRef.data(forKey: keyName) {
+                        do {
+                            let value = try decoder.decode(Value.self, from: data)
+                            continuation.yield(value)
+                        } catch {
+                            (onError ?? VMDefaultsCoding.defaultOnError)?(error)
+                            continuation.yield(defaultVal)
+                        }
+                    } else {
+                        continuation.yield(defaultVal)
+                    }
+                }
+            }
+
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+public extension DefaultsKey where Value: Codable & Equatable & Sendable {
+    /// A Combine publisher for Codable values that removes duplicate consecutive emissions.
+    @MainActor
+    func distinctPublisher(
+        decoder: JSONDecoder = .init(),
+        onError: (@Sendable (Error) -> Void)? = nil
+    ) -> AnyPublisher<Value, Never> {
+        publisher(decoder: decoder, onError: onError).removeDuplicates().eraseToAnyPublisher()
+    }
+
+    /// An AsyncSequence for Codable values that yields only when the decoded value actually changes.
+    @MainActor
+    func distinctUpdates(
+        decoder: JSONDecoder = .init(),
+        onError: (@Sendable (Error) -> Void)? = nil
+    ) -> AsyncStream<Value> {
+        let containerRef = container
+        let keyName = name
+        let defaultVal = defaultValue
+        let notifications = NotificationCenter.default.notifications(
+            named: UserDefaults.didChangeNotification,
+            object: nil
+        )
+        return AsyncStream { continuation in
+            let initial: Value
+            if let data = containerRef.data(forKey: keyName) {
+                initial = (try? decoder.decode(Value.self, from: data)) ?? defaultVal
+            } else {
+                initial = defaultVal
+            }
+            continuation.yield(initial)
+
+            let task = Task { @MainActor in
+                var isScheduled = false
+                var last = initial
+                for await note in notifications {
+                    guard note.object as AnyObject? === containerRef else { continue }
+                    if isScheduled { continue }
+                    isScheduled = true
+                    await Task.yield()
+                    isScheduled = false
+                    if let data = containerRef.data(forKey: keyName) {
+                        do {
+                            let value = try decoder.decode(Value.self, from: data)
+                            if value != last {
+                                last = value
+                                continuation.yield(value)
+                            }
+                        } catch {
+                            (onError ?? VMDefaultsCoding.defaultOnError)?(error)
+                            if defaultVal != last {
+                                last = defaultVal
+                                continuation.yield(defaultVal)
+                            }
+                        }
+                    } else if defaultVal != last {
+                        last = defaultVal
+                        continuation.yield(defaultVal)
+                    }
+                }
+            }
+
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
