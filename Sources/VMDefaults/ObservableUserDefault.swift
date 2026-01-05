@@ -15,7 +15,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
     private let tokenID = UUID().uuidString
     private let onError: (@Sendable (Error) -> Void)?
 
-    public init(_ key: DefaultsKey<Value>) {
+    public init(_ key: DefaultsKey<Value>) where Value: PropertyListValue {
         let initial = _readRaw(from: key.container, key: key.name, defaultValue: key.defaultValue)
         self.onError = nil
 
@@ -27,7 +27,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
         )
     }
 
-    public init(key: String, defaultValue: Value, container: UserDefaults = .standard) {
+    public init(key: String, defaultValue: Value, container: UserDefaults = .standard) where Value: PropertyListValue {
         let initial = _readRaw(from: container, key: key, defaultValue: defaultValue)
         self.onError = nil
 
@@ -40,7 +40,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
     }
 
     public init(
-        codable key: DefaultsKey<Value>,
+        _ key: CodableDefaultsKey<Value>,
         encoder: JSONEncoder = .init(),
         decoder: JSONDecoder = .init(),
         onError: (@Sendable (Error) -> Void)? = nil
@@ -58,7 +58,6 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
         }
 
         func write(_ newValue: Value) {
-            // Preserve “nil removes key” semantics for Optional codable values.
             if let opt = newValue as? _AnyOptional, opt._isNil {
                 key.container.removeObject(forKey: key.name)
                 return
@@ -139,7 +138,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
             let wrapper = instance[keyPath: storageKeyPath]
             wrapper.ensureBound(to: instance)
 
-            guard newValue != wrapper.box.value else { return }
+            guard !(newValue == wrapper.box.value) else { return }
 
             let token = _token(on: instance as AnyObject, id: wrapper.tokenID)
             token.isInternalWrite = true
@@ -165,3 +164,4 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
             }
     }
 }
+

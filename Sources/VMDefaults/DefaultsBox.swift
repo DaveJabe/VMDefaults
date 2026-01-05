@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 
+
 // MARK: - Optional detection (so we can removeObject on nil)
 
 protocol _AnyOptional { var _isNil: Bool { get } }
@@ -80,16 +81,17 @@ final class DefaultsBox<Value: Equatable & Sendable> {
 // MARK: - Raw UserDefaults read/write helpers
 
 @MainActor
-func _readRaw<Value>(from defaults: UserDefaults, key: String, defaultValue: Value) -> Value {
+func _readRaw<Value: PropertyListValue>(from defaults: UserDefaults, key: String, defaultValue: Value) -> Value {
     (defaults.object(forKey: key) as? Value) ?? defaultValue
 }
 
 @MainActor
-func _writeRaw<Value>(to defaults: UserDefaults, key: String, newValue: Value) {
+func _writeRaw<Value: PropertyListValue>(to defaults: UserDefaults, key: String, newValue: Value) {
     // Canonical semantics: Optional(nil) removes the key.
     if let opt = newValue as? _AnyOptional, opt._isNil {
         defaults.removeObject(forKey: key)
     } else {
+        // Although constrained to PropertyListValue, we rely on the dynamic UserDefaults semantics here.
         defaults.set(newValue, forKey: key)
     }
 }
