@@ -26,7 +26,7 @@ struct ExampleSettings: Codable, Equatable, Sendable {
     var name: String
 }
 
-let settingsKey = DefaultsKey<ExampleSettings>(
+let settingsKey = CodableDefaultsKey<ExampleSettings>(
     "examples.settings",
     default: .init(count: 0, name: "zero")
 )

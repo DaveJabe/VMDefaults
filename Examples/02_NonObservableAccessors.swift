@@ -16,7 +16,7 @@ let rawKey = DefaultsKey<Int>("nonobs.raw", default: 42, container: nonObsSuite)
 let optKey = DefaultsKey<String?>("nonobs.opt", default: nil, container: nonObsSuite)
 
 struct NonObsSettings: Codable, Equatable, Sendable { var count: Int; var name: String }
-let codableKey = DefaultsKey<NonObsSettings>(
+let codableKey = CodableDefaultsKey<NonObsSettings>(
     "nonobs.codable",
     default: .init(count: 0, name: "zero"),
     container: nonObsSuite
@@ -52,3 +52,4 @@ func demoNonObservableAccessors() {
     let f = codableKey.get() // payload
     print("codable stored:", f)
 }
+

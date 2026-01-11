@@ -13,7 +13,7 @@ let asyncSuite = UserDefaults(suiteName: "VMDefaults.Examples.Async")!
 let asyncRawKey = DefaultsKey<String?>("async.raw", default: nil, container: asyncSuite)
 
 struct AsyncSettings: Codable, Equatable, Sendable { var count: Int; var name: String }
-let asyncCodableKey = DefaultsKey<AsyncSettings>(
+let asyncCodableKey = CodableDefaultsKey<AsyncSettings>(
     "async.codable",
     default: .init(count: 0, name: "zero"),
     container: asyncSuite
@@ -72,3 +72,4 @@ func demoAsyncCodableUpdates() async {
         }
     }
 }
+
