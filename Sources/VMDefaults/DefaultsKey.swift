@@ -13,7 +13,7 @@ import Foundation
 /// - prevents stringly-typed mistakes
 /// - couples key name and default value
 /// - allows injecting a specific UserDefaults container (suite) for testing
-public struct DefaultsKey<Value> {
+public struct DefaultsKey<Value: PropertyListValue> {
     public let name: String
     public let defaultValue: Value
     public let container: UserDefaults

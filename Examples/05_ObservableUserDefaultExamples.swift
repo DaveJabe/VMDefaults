@@ -36,8 +36,8 @@ final class ProfileVM: ObservableObject {
     @ObservableUserDefault var profile: Profile
 
     init() {
-        let key = DefaultsKey<Profile>("obs.profile", default: .init(name: "Anonymous", age: 0), container: obsSuite)
-        _profile = ObservableUserDefault(codable: key)
+        let key = CodableDefaultsKey<Profile>("obs.profile", default: .init(name: "Anonymous", age: 0), container: obsSuite)
+        _profile = ObservableUserDefault(key)
         _ = profile
     }
 
@@ -66,7 +66,7 @@ func demoObservableUserDefault() async {
 
     let extProfile = Profile(name: "Jordan", age: 28)
     if let data = try? JSONEncoder().encode(extProfile) {
-        obsSuite.set(data, forKey: DefaultsKey<Profile>("obs.profile", default: .init(name: "Anonymous", age: 0), container: obsSuite).name)
+        obsSuite.set(data, forKey: CodableDefaultsKey<Profile>("obs.profile", default: .init(name: "Anonymous", age: 0), container: obsSuite).name)
         NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: obsSuite)
     }
 
