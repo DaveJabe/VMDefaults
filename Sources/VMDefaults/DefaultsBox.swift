@@ -71,7 +71,7 @@ final class DefaultsBox<Value: Equatable & Sendable> {
     }
 
     private func coalescedRefresh() {
-        isRefreshScheduled = false
+        defer { isRefreshScheduled = false }
         let latest = read()
         guard latest != value else { return }
         value = latest
