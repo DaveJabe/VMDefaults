@@ -60,18 +60,18 @@ final class DefaultsBox<Value: Equatable & Sendable> {
         write(newValue)
     }
 
-    @objc private func userDefaultsDidChange() {
-        guard !isRefreshScheduled else { return }
-        isRefreshScheduled = true
-
-        // Hop to the next main-actor turn so multiple notifications collapse into one refresh.
+    @objc nonisolated private func userDefaultsDidChange() {
+        // NotificationCenter delivers on the posting thread, which may not be the main thread.
+        // Hop to the main actor and coalesce there where isRefreshScheduled is safe to access.
         Task { @MainActor [weak self] in
-            self?.coalescedRefresh()
+            guard let self, !self.isRefreshScheduled else { return }
+            self.isRefreshScheduled = true
+            self.coalescedRefresh()
         }
     }
 
     private func coalescedRefresh() {
-        isRefreshScheduled = false
+        defer { isRefreshScheduled = false }
         let latest = read()
         guard latest != value else { return }
         value = latest
