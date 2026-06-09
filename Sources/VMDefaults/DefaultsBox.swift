@@ -11,8 +11,17 @@ import Combine
 
 // MARK: - Optional detection (so we can removeObject on nil)
 
-protocol _AnyOptional { var _isNil: Bool { get } }
-extension Optional: _AnyOptional { var _isNil: Bool { self == nil } }
+protocol _AnyOptional {
+    var _isNil: Bool { get }
+    var _unwrapped: Any? { get }
+}
+extension Optional: _AnyOptional {
+    var _isNil: Bool { self == nil }
+    // Returns the wrapped value as Any, or nil if absent.
+    // Used by _writeRaw to avoid passing Optional<T> to UserDefaults, which is not a valid
+    // property list type and causes UserDefaults.standard to silently reject the write.
+    var _unwrapped: Any? { self.map { $0 as Any } }
+}
 
 // MARK: - Shared box
 
@@ -80,11 +89,15 @@ func _readRaw<Value: PropertyListValue>(from defaults: UserDefaults, key: String
 
 @MainActor
 func _writeRaw<Value: PropertyListValue>(to defaults: UserDefaults, key: String, newValue: Value) {
-    // Canonical semantics: Optional(nil) removes the key.
-    if let opt = newValue as? _AnyOptional, opt._isNil {
-        defaults.removeObject(forKey: key)
+    if let opt = newValue as? _AnyOptional {
+        if opt._isNil {
+            defaults.removeObject(forKey: key)
+        } else {
+            // Unwrap before storing: Optional<T> is not a valid property list type.
+            // UserDefaults.standard silently rejects Optional wrappers without unwrapping.
+            defaults.set(opt._unwrapped, forKey: key)
+        }
     } else {
-        // Although constrained to PropertyListValue, we rely on the dynamic UserDefaults semantics here.
         defaults.set(newValue, forKey: key)
     }
 }
