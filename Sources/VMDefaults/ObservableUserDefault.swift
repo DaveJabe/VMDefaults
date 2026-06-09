@@ -8,6 +8,12 @@
 import Foundation
 import Combine
 
+/// A property wrapper that keeps an `ObservableObject` property in sync with a UserDefaults value.
+///
+/// **Lazy binding**: the `objectWillChange` subscription is installed the first time the property
+/// is accessed through its enclosing instance's subscript. For `private` properties that are
+/// never read externally, call `_ = myProperty` inside the enclosing type's `init` to eagerly
+/// install the subscription so that external UserDefaults writes trigger re-renders immediately.
 @MainActor
 @propertyWrapper
 public struct ObservableUserDefault<Value: Equatable & Sendable> {

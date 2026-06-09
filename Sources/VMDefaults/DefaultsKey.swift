@@ -7,6 +7,13 @@
 
 import Foundation
 
+/// Shared read-only interface for both `DefaultsKey` and `CodableDefaultsKey`.
+/// Allows writing generic utilities over either key type.
+public protocol AnyDefaultsKey {
+    var name: String { get }
+    var container: UserDefaults { get }
+}
+
 /// A strongly-typed UserDefaults key definition.
 ///
 /// Why this exists:
@@ -35,4 +42,7 @@ public struct CodableDefaultsKey<Value: Codable> {
         self.container = container
     }
 }
+
+extension DefaultsKey: AnyDefaultsKey {}
+extension CodableDefaultsKey: AnyDefaultsKey {}
 
