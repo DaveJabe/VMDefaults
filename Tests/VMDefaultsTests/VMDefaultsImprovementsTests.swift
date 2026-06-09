@@ -345,3 +345,44 @@ struct CodablePublisherDispatchQueueMainTests {
         _ = cancellable
     }
 }
+
+// MARK: - DefaultsKey<Int?> set/get round-trip
+
+@Suite("DefaultsKey<Int?> set/get round-trip")
+struct IntOptionalRoundTripTests {
+
+    @Test("set(7) then get() returns 7")
+    @MainActor
+    func setIntThenGetReturnsInt() {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<Int?>("rtrip.int.opt", default: nil, container: defaults)
+
+        #expect(key.get() == nil)
+        key.set(7)
+        let value = key.get()
+        #expect(value == 7)
+    }
+
+    @Test("set(nil) after set(7) returns nil")
+    @MainActor
+    func setNilAfterIntReturnsNil() {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<Int?>("rtrip.int.nil", default: nil, container: defaults)
+
+        key.set(42)
+        #expect(key.get() == 42)
+        key.set(nil)
+        #expect(key.get() == nil)
+    }
+
+    @Test("defaults.object after set(7) is non-nil")
+    @MainActor
+    func rawObjectAfterSetIsNonNil() {
+        let defaults = makeIsolatedDefaults()
+        let key = DefaultsKey<Int?>("rtrip.raw.obj", default: nil, container: defaults)
+
+        key.set(7)
+        let raw = defaults.object(forKey: key.name)
+        #expect(raw != nil)
+    }
+}
