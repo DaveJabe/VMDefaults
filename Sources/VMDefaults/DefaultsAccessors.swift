@@ -31,13 +31,14 @@ public extension DefaultsKey where Value: PropertyListValue & Sendable {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let initial = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
-        return NotificationCenter.default
-            .publisher(for: UserDefaults.didChangeNotification, object: containerRef)
-            .receive(on: RunLoop.main)
-            .map { _ in _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal) }
-            .prepend(initial)
-            .eraseToAnyPublisher()
+        return Deferred {
+            NotificationCenter.default
+                .publisher(for: UserDefaults.didChangeNotification, object: containerRef)
+                .receive(on: DispatchQueue.main)
+                .map { _ in _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal) }
+                .prepend(_readRaw(from: containerRef, key: keyName, defaultValue: defaultVal))
+        }
+        .eraseToAnyPublisher()
     }
 
     /// An AsyncSequence that yields the current value and subsequent updates for this key.
@@ -170,13 +171,14 @@ public extension CodableDefaultsKey where Value: Sendable {
                 return defaultVal
             }
         }
-        let initial = decode()
-        return NotificationCenter.default
-            .publisher(for: UserDefaults.didChangeNotification, object: containerRef)
-            .receive(on: RunLoop.main)
-            .map { _ in decode() }
-            .prepend(initial)
-            .eraseToAnyPublisher()
+        return Deferred {
+            NotificationCenter.default
+                .publisher(for: UserDefaults.didChangeNotification, object: containerRef)
+                .receive(on: DispatchQueue.main)
+                .map { _ in decode() }
+                .prepend(decode())
+        }
+        .eraseToAnyPublisher()
     }
 
     /// An AsyncSequence that decodes JSON Data for this key and yields the current and future values.

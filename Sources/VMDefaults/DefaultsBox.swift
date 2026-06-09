@@ -30,9 +30,6 @@ final class DefaultsBox<Value: Equatable & Sendable> {
 
     @Published private(set) var value: Value
 
-    /// Coalesces bursts of `UserDefaults.didChangeNotification`.
-    private var isRefreshScheduled = false
-
     init(
         container: UserDefaults,
         initialValue: Value,
@@ -62,16 +59,12 @@ final class DefaultsBox<Value: Equatable & Sendable> {
 
     @objc nonisolated private func userDefaultsDidChange() {
         // NotificationCenter delivers on the posting thread, which may not be the main thread.
-        // Hop to the main actor and coalesce there where isRefreshScheduled is safe to access.
-        Task { @MainActor [weak self] in
-            guard let self, !self.isRefreshScheduled else { return }
-            self.isRefreshScheduled = true
-            self.coalescedRefresh()
-        }
+        // Hop to the main actor; coalescedRefresh() is idempotent (guard latest != value),
+        // so burst notifications all resolve to a single value update at most.
+        Task { @MainActor [weak self] in self?.coalescedRefresh() }
     }
 
     private func coalescedRefresh() {
-        defer { isRefreshScheduled = false }
         let latest = read()
         guard latest != value else { return }
         value = latest
