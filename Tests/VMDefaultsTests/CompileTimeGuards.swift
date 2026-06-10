@@ -35,9 +35,27 @@ struct CTSettings: Codable, Equatable, Sendable { var count: Int; var name: Stri
 
 // This should fail: DefaultsKey does not accept Codable types.
 let badKey = DefaultsKey<CTSettings>(
-    "compile.fail.defaultskey.codable",
+    "compile-fail-defaultskey-codable",
     default: .init(count: 0, name: "zero")
 )
+
+// This should fail: ObservableUserDefault.wrappedValue is @available(*, unavailable), so the
+// wrapper cannot be used outside an ObservableObject class (e.g. on a struct property or a
+// local variable). Previously this was a reachable runtime fatalError; it is now a compile error.
+struct BadStruct {
+    @ObservableUserDefault var value: Int
+
+    init() {
+        _value = ObservableUserDefault(DefaultsKey<Int>("compile-fail-struct", default: 0))
+    }
+}
+
+// This should also fail: direct wrappedValue access is unavailable.
+@MainActor
+func badDirectWrappedValueAccess() {
+    let wrapper = ObservableUserDefault(DefaultsKey<Int>("compile-fail-direct", default: 0))
+    _ = wrapper.wrappedValue
+}
 
 // This should also fail: there is no ObservableUserDefault init for DefaultsKey<Codable>.
 @MainActor

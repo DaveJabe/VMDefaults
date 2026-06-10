@@ -17,7 +17,7 @@ struct DefaultsAccessorsTests {
     @MainActor
     func getReturnsDefaultWhenMissing() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("plain.missing", default: 42, container: defaults)
+        let key = DefaultsKey<Int>("plain-missing", default: 42, container: defaults)
 
         #expect(key.get() == 42)
     }
@@ -26,7 +26,7 @@ struct DefaultsAccessorsTests {
     @MainActor
     func getReturnsStoredRawValue() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<String?>("plain.raw", default: nil, container: defaults)
+        let key = DefaultsKey<String?>("plain-raw", default: nil, container: defaults)
 
         defaults.set("hello", forKey: key.name)
         #expect(key.get() == "hello")
@@ -38,7 +38,7 @@ struct DefaultsAccessorsTests {
     @MainActor
     func getCodableReturnsDefaultWhenMissingOrInvalid() {
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<ASettings>("plain.codable.invalid", default: .init(count: 0, name: "zero"), container: defaults)
+        let key = CodableDefaultsKey<ASettings>("plain-codable-invalid", default: .init(count: 0, name: "zero"), container: defaults)
 
         #expect(key.get() == .init(count: 0, name: "zero"))
 
@@ -50,7 +50,7 @@ struct DefaultsAccessorsTests {
     @MainActor
     func getCodableReturnsDecodedValue() throws {
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<ASettings>("plain.codable.valid", default: .init(count: 0, name: "zero"), container: defaults)
+        let key = CodableDefaultsKey<ASettings>("plain-codable-valid", default: .init(count: 0, name: "zero"), container: defaults)
 
         let payload = ASettings(count: 7, name: "seven")
         let data = try JSONEncoder().encode(payload)
@@ -69,7 +69,7 @@ struct DefaultsAccessorsSetTests {
     @MainActor
     func setRawStoresValue() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("plain.raw.set", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("plain-raw-set", default: 0, container: defaults)
         key.set(7)
         #expect(defaults.integer(forKey: key.name) == 7)
     }
@@ -78,7 +78,7 @@ struct DefaultsAccessorsSetTests {
     @MainActor
     func setRawOptionalNilRemovesKey() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<String?>("plain.raw.opt.set", default: nil, container: defaults)
+        let key = DefaultsKey<String?>("plain-raw-opt-set", default: nil, container: defaults)
         key.set("X")
         #expect(defaults.string(forKey: key.name) == "X")
         key.set(nil)
@@ -90,7 +90,7 @@ struct DefaultsAccessorsSetTests {
     @MainActor
     func setCodableStoresEncodedValue() throws {
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<SASettings>("plain.codable.set", default: .init(count: 0, name: "zero"), container: defaults)
+        let key = CodableDefaultsKey<SASettings>("plain-codable-set", default: .init(count: 0, name: "zero"), container: defaults)
         let payload = SASettings(count: 5, name: "five")
         key.set(payload)
         let raw = try #require(defaults.data(forKey: key.name))
@@ -102,7 +102,7 @@ struct DefaultsAccessorsSetTests {
     @MainActor
     func setCodableOptionalNilRemovesKey() throws {
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<String?>("plain.codable.opt.set", default: nil, container: defaults)
+        let key = CodableDefaultsKey<String?>("plain-codable-opt-set", default: nil, container: defaults)
         key.set("Hello")
         let raw = try #require(defaults.data(forKey: key.name))
         let decoded = try JSONDecoder().decode(Optional<String>.self, from: raw)
@@ -124,7 +124,7 @@ struct DefaultsAccessorsSetTests {
         }
 
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<Failing>("plain.codable.fail.set", default: .init(v: 0), container: defaults)
+        let key = CodableDefaultsKey<Failing>("plain-codable-fail-set", default: .init(v: 0), container: defaults)
         final class ErrorBox: @unchecked Sendable { var value: Error? }
         let box = ErrorBox()
         key.set(.init(v: 1), onError: { box.value = $0 })

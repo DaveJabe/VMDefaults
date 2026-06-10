@@ -25,7 +25,7 @@ struct PublisherDispatchQueueMainTests {
     @MainActor
     func publisherUpdateArrivesAfterTaskSleep() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("fix1.int", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("fix1-int", default: 0, container: defaults)
 
         var received: [Int] = []
         let cancellable = key.publisher().sink { received.append($0) }
@@ -33,7 +33,6 @@ struct PublisherDispatchQueueMainTests {
         #expect(received == [0])
 
         defaults.set(7, forKey: key.name)
-        postDidChange(for: defaults)
 
         try? await Task.sleep(nanoseconds: propagationDelayNanos)
 
@@ -45,7 +44,7 @@ struct PublisherDispatchQueueMainTests {
     @MainActor
     func publisherOptionalUpdateArrivesAfterTaskSleep() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<String?>("fix1.opt", default: nil, container: defaults)
+        let key = DefaultsKey<String?>("fix1-opt", default: nil, container: defaults)
 
         var received: [String?] = []
         let cancellable = key.publisher().sink { received.append($0) }
@@ -53,7 +52,6 @@ struct PublisherDispatchQueueMainTests {
         #expect(received == [nil])
 
         defaults.set("hello", forKey: key.name)
-        postDidChange(for: defaults)
 
         try? await Task.sleep(nanoseconds: propagationDelayNanos)
 
@@ -65,7 +63,7 @@ struct PublisherDispatchQueueMainTests {
     @MainActor
     func multiplePublisherUpdatesArriveAfterTaskSleep() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("fix1.multi", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("fix1-multi", default: 0, container: defaults)
 
         var received: [Int] = []
         let cancellable = key.publisher().sink { received.append($0) }
@@ -73,11 +71,9 @@ struct PublisherDispatchQueueMainTests {
         #expect(received == [0])
 
         defaults.set(1, forKey: key.name)
-        postDidChange(for: defaults)
         try? await Task.sleep(nanoseconds: propagationDelayNanos)
 
         defaults.set(2, forKey: key.name)
-        postDidChange(for: defaults)
         try? await Task.sleep(nanoseconds: propagationDelayNanos)
 
         #expect(received.contains(1))
@@ -95,12 +91,11 @@ struct DefaultsBoxCoalescingTests {
     @MainActor
     func observablePicksUpExternalWriteAfterSettle() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("fix2.settle", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("fix2-settle", default: 0, container: defaults)
         let vm = ObservableVM(key)
 
         // External write that bypasses the property wrapper — simulates iCloud or another process.
         defaults.set(42, forKey: key.name)
-        postDidChange(for: defaults)
 
         try? await Task.sleep(nanoseconds: propagationDelayNanos)
         #expect(vm.value == 42)
@@ -110,14 +105,13 @@ struct DefaultsBoxCoalescingTests {
     @MainActor
     func externalWriteFiresObjectWillChange() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("fix2.owc", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("fix2-owc", default: 0, container: defaults)
         let vm = ObservableVM(key)
 
         let willChangeWaiter = startWillChangeWaiter(vm)
         await yieldForSubscriptionInstall()
 
         defaults.set(99, forKey: key.name)
-        postDidChange(for: defaults)
 
         let fired = await willChangeWaiter.value
         #expect(fired)
@@ -128,7 +122,7 @@ struct DefaultsBoxCoalescingTests {
     @MainActor
     func burstNotificationsProduceAtMostOneValueUpdate() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("fix2.burst", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("fix2-burst", default: 0, container: defaults)
         let vm = ObservableVM(key)
 
         var changeCount = 0
@@ -136,9 +130,6 @@ struct DefaultsBoxCoalescingTests {
 
         // Write once, post three notifications (simulates burst).
         defaults.set(7, forKey: key.name)
-        postDidChange(for: defaults)
-        postDidChange(for: defaults)
-        postDidChange(for: defaults)
 
         try? await Task.sleep(nanoseconds: propagationDelayNanos)
 
@@ -158,7 +149,7 @@ struct DeferredPublisherInitialValueTests {
     @MainActor
     func initialValueAtSubscriptionTime() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("fix3.deferred", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("fix3-deferred", default: 0, container: defaults)
 
         // Create the publisher before the value is stored.
         let publisher = key.publisher()
@@ -178,7 +169,7 @@ struct DeferredPublisherInitialValueTests {
     @MainActor
     func multipleSubscriptionsEachGetFreshInitial() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("fix3.multi.sub", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("fix3-multi-sub", default: 0, container: defaults)
 
         let publisher = key.publisher()
 
@@ -201,7 +192,7 @@ struct DeferredPublisherInitialValueTests {
         struct Settings: Codable, Equatable, Sendable { var count: Int }
 
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<Settings>("fix3.codable.deferred", default: .init(count: 0), container: defaults)
+        let key = CodableDefaultsKey<Settings>("fix3-codable-deferred", default: .init(count: 0), container: defaults)
 
         let publisher = key.publisher()
 
@@ -223,23 +214,23 @@ struct AnyDefaultsKeyTests {
 
     @Test("DefaultsKey conforms to AnyDefaultsKey")
     func defaultsKeyConformsToAnyDefaultsKey() {
-        let key: any AnyDefaultsKey = DefaultsKey<Int>("proto.int", default: 0)
-        #expect(key.name == "proto.int")
+        let key: any AnyDefaultsKey = DefaultsKey<Int>("proto-int", default: 0)
+        #expect(key.name == "proto-int")
         #expect(key.container === UserDefaults.standard)
     }
 
     @Test("CodableDefaultsKey conforms to AnyDefaultsKey")
     func codableDefaultsKeyConformsToAnyDefaultsKey() {
         struct Settings: Codable { var count: Int }
-        let key: any AnyDefaultsKey = CodableDefaultsKey<Settings>("proto.codable", default: .init(count: 0))
-        #expect(key.name == "proto.codable")
+        let key: any AnyDefaultsKey = CodableDefaultsKey<Settings>("proto-codable", default: .init(count: 0))
+        #expect(key.name == "proto-codable")
         #expect(key.container === UserDefaults.standard)
     }
 
     @Test("AnyDefaultsKey carries custom container reference")
     func anyDefaultsKeyCarriesCustomContainer() {
         let defaults = makeIsolatedDefaults()
-        let key: any AnyDefaultsKey = DefaultsKey<Bool>("proto.custom.container", default: false, container: defaults)
+        let key: any AnyDefaultsKey = DefaultsKey<Bool>("proto-custom-container", default: false, container: defaults)
         #expect(key.container === defaults)
     }
 
@@ -247,11 +238,11 @@ struct AnyDefaultsKeyTests {
     func heterogeneousArrayOfAnyDefaultsKey() {
         struct S: Codable { var v: Int }
         let keys: [any AnyDefaultsKey] = [
-            DefaultsKey<Int>("proto.array.int", default: 0),
-            DefaultsKey<String?>("proto.array.str", default: nil),
-            CodableDefaultsKey<S>("proto.array.codable", default: .init(v: 0))
+            DefaultsKey<Int>("proto-array-int", default: 0),
+            DefaultsKey<String?>("proto-array-str", default: nil),
+            CodableDefaultsKey<S>("proto-array-codable", default: .init(v: 0))
         ]
-        #expect(keys.map(\.name) == ["proto.array.int", "proto.array.str", "proto.array.codable"])
+        #expect(keys.map(\.name) == ["proto-array-int", "proto-array-str", "proto-array-codable"])
     }
 }
 
@@ -264,7 +255,7 @@ struct ObservableUserDefaultLazyBindingTests {
     @MainActor
     func eagerBindingFiresObjectWillChange() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("fix5.eager", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("fix5-eager", default: 0, container: defaults)
         // ObservableVM accesses `value` in its init — installing the binding eagerly.
         let vm = ObservableVM(key)
 
@@ -272,7 +263,6 @@ struct ObservableUserDefaultLazyBindingTests {
         await yieldForSubscriptionInstall()
 
         defaults.set(55, forKey: key.name)
-        postDidChange(for: defaults)
 
         let fired = await waiter.value
         #expect(fired)
@@ -283,8 +273,8 @@ struct ObservableUserDefaultLazyBindingTests {
     @MainActor
     func valueIsReadableImmediatelyViaEagerAccess() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(42, forKey: "fix5.pre-init")
-        let key = DefaultsKey<Int>("fix5.pre-init", default: 0, container: defaults)
+        defaults.set(42, forKey: "fix5-pre-init")
+        let key = DefaultsKey<Int>("fix5-pre-init", default: 0, container: defaults)
         let vm = ObservableVM(key)
         // ObservableVM reads `value` in its init (installing the binding) and captures the current
         // UserDefaults state. The synchronous read in init should reflect 42.
@@ -303,7 +293,7 @@ struct CodablePublisherDispatchQueueMainTests {
     @MainActor
     func codablePublisherUpdateArrivesAfterTaskSleep() async throws {
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<CItem>("fix6.codable", default: .init(label: "zero"), container: defaults)
+        let key = CodableDefaultsKey<CItem>("fix6-codable", default: .init(label: "zero"), container: defaults)
 
         var received: [CItem] = []
         let cancellable = key.publisher().sink { received.append($0) }
@@ -312,7 +302,6 @@ struct CodablePublisherDispatchQueueMainTests {
 
         let next = CItem(label: "one")
         defaults.set(try JSONEncoder().encode(next), forKey: key.name)
-        postDidChange(for: defaults)
 
         try? await Task.sleep(nanoseconds: propagationDelayNanos)
 
@@ -324,7 +313,7 @@ struct CodablePublisherDispatchQueueMainTests {
     @MainActor
     func codablePublisherDeliversSequentialUpdates() async throws {
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<CItem>("fix6.seq", default: .init(label: "start"), container: defaults)
+        let key = CodableDefaultsKey<CItem>("fix6-seq", default: .init(label: "start"), container: defaults)
 
         var received: [CItem] = []
         let cancellable = key.publisher().sink { received.append($0) }
@@ -333,11 +322,9 @@ struct CodablePublisherDispatchQueueMainTests {
         let b = CItem(label: "b")
 
         defaults.set(try JSONEncoder().encode(a), forKey: key.name)
-        postDidChange(for: defaults)
         try? await Task.sleep(nanoseconds: propagationDelayNanos)
 
         defaults.set(try JSONEncoder().encode(b), forKey: key.name)
-        postDidChange(for: defaults)
         try? await Task.sleep(nanoseconds: propagationDelayNanos)
 
         #expect(received.first == .init(label: "start"))
@@ -355,7 +342,7 @@ struct IntOptionalRoundTripTests {
     @MainActor
     func setIntThenGetReturnsInt() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int?>("rtrip.int.opt", default: nil, container: defaults)
+        let key = DefaultsKey<Int?>("rtrip-int-opt", default: nil, container: defaults)
 
         #expect(key.get() == nil)
         key.set(7)
@@ -367,7 +354,7 @@ struct IntOptionalRoundTripTests {
     @MainActor
     func setNilAfterIntReturnsNil() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int?>("rtrip.int.nil", default: nil, container: defaults)
+        let key = DefaultsKey<Int?>("rtrip-int-nil", default: nil, container: defaults)
 
         key.set(42)
         #expect(key.get() == 42)
@@ -379,7 +366,7 @@ struct IntOptionalRoundTripTests {
     @MainActor
     func rawObjectAfterSetIsNonNil() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int?>("rtrip.raw.obj", default: nil, container: defaults)
+        let key = DefaultsKey<Int?>("rtrip-raw-obj", default: nil, container: defaults)
 
         key.set(7)
         let raw = defaults.object(forKey: key.name)

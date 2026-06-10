@@ -27,6 +27,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
 
         self.box = DefaultsBox(
             container: key.container,
+            key: key.name,
             initialValue: initial,
             read: { _readRaw(from: key.container, key: key.name, defaultValue: key.defaultValue) },
             write: { _writeRaw(to: key.container, key: key.name, newValue: $0) }
@@ -39,6 +40,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
 
         self.box = DefaultsBox(
             container: container,
+            key: key,
             initialValue: initial,
             read: { _readRaw(from: container, key: key, defaultValue: defaultValue) },
             write: { _writeRaw(to: container, key: key, newValue: $0) }
@@ -78,6 +80,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
 
         self.box = DefaultsBox(
             container: key.container,
+            key: key.name,
             initialValue: read(),
             read: read,
             write: write
@@ -119,15 +122,22 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
 
         self.box = DefaultsBox(
             container: container,
+            key: key,
             initialValue: read(),
             read: read,
             write: write
         )
     }
 
+    /// `@ObservableUserDefault` only works through the enclosing-instance static subscript,
+    /// which requires the property to live on an `ObservableObject` class. Marking these
+    /// accessors unavailable (the same technique `@Published` uses) turns misuse — e.g. on a
+    /// struct, a local variable, or a non-ObservableObject class — into a compile-time error
+    /// instead of a runtime `fatalError`.
+    @available(*, unavailable, message: "@ObservableUserDefault must be used on a property of an ObservableObject class")
     public var wrappedValue: Value {
-        get { fatalError("ObservableUserDefault must be used on a class (ObservableObject) property.") }
-        set { fatalError("ObservableUserDefault must be used on a class (ObservableObject) property.") }
+        get { fatalError("Unreachable: wrappedValue is unavailable; access goes through the enclosing-instance subscript.") }
+        set { fatalError("Unreachable: wrappedValue is unavailable; access goes through the enclosing-instance subscript.") }
     }
 
     public static subscript<EnclosingSelf: ObservableObject>(

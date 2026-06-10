@@ -26,14 +26,16 @@ public extension DefaultsKey where Value: PropertyListValue {
 public extension DefaultsKey where Value: PropertyListValue & Sendable {
     /// A Combine publisher that emits the current value and subsequent updates for this key.
     /// This is a read-only, non-observable-object stream.
+    ///
+    /// Observation is KVO-based: suite-scoped, cross-process, and per-key (writes to other
+    /// keys do not emit). The key name must be KVC-compliant (must not contain ".").
     @MainActor
     func publisher() -> AnyPublisher<Value, Never> {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
         return Deferred {
-            NotificationCenter.default
-                .publisher(for: UserDefaults.didChangeNotification, object: containerRef)
+            UserDefaultsKeyChangePublisher(defaults: containerRef, key: keyName)
                 .receive(on: DispatchQueue.main)
                 .map { _ in _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal) }
                 .prepend(_readRaw(from: containerRef, key: keyName, defaultValue: defaultVal))
@@ -42,23 +44,23 @@ public extension DefaultsKey where Value: PropertyListValue & Sendable {
     }
 
     /// An AsyncSequence that yields the current value and subsequent updates for this key.
-    /// Bursts of notifications are coalesced to a single yield per runloop turn.
+    /// Bursts of changes are coalesced to a single yield per runloop turn.
+    ///
+    /// Observation is KVO-based: suite-scoped, cross-process, and per-key (writes to other
+    /// keys do not yield). The key name must be KVC-compliant (must not contain ".").
     @MainActor
     func updates() -> AsyncStream<Value> {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let notifications = NotificationCenter.default.notifications(
-            named: UserDefaults.didChangeNotification,
-            object: containerRef
-        )
+        let changes = _keyChanges(in: containerRef, key: keyName)
         return AsyncStream { continuation in
             let initial = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
             continuation.yield(initial)
 
             let task = Task { @MainActor in
                 var isScheduled = false
-                for await _ in notifications {
+                for await _ in changes {
                     if isScheduled { continue }
                     isScheduled = true
                     await Task.yield() // collapse bursts into one refresh
@@ -81,15 +83,15 @@ public extension DefaultsKey where Value: PropertyListValue & Equatable & Sendab
     }
 
     /// An AsyncSequence that yields only when the value actually changes.
+    ///
+    /// Observation is KVO-based: suite-scoped, cross-process, and per-key (writes to other
+    /// keys do not yield). The key name must be KVC-compliant (must not contain ".").
     @MainActor
     func distinctUpdates() -> AsyncStream<Value> {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let notifications = NotificationCenter.default.notifications(
-            named: UserDefaults.didChangeNotification,
-            object: containerRef
-        )
+        let changes = _keyChanges(in: containerRef, key: keyName)
         return AsyncStream { continuation in
             let initial = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
             continuation.yield(initial)
@@ -97,7 +99,7 @@ public extension DefaultsKey where Value: PropertyListValue & Equatable & Sendab
             let task = Task { @MainActor in
                 var isScheduled = false
                 var last = initial
-                for await _ in notifications {
+                for await _ in changes {
                     if isScheduled { continue }
                     isScheduled = true
                     await Task.yield()
@@ -172,8 +174,7 @@ public extension CodableDefaultsKey where Value: Sendable {
             }
         }
         return Deferred {
-            NotificationCenter.default
-                .publisher(for: UserDefaults.didChangeNotification, object: containerRef)
+            UserDefaultsKeyChangePublisher(defaults: containerRef, key: keyName)
                 .receive(on: DispatchQueue.main)
                 .map { _ in decode() }
                 .prepend(decode())
@@ -182,6 +183,9 @@ public extension CodableDefaultsKey where Value: Sendable {
     }
 
     /// An AsyncSequence that decodes JSON Data for this key and yields the current and future values.
+    ///
+    /// Observation is KVO-based: suite-scoped, cross-process, and per-key (writes to other
+    /// keys do not yield). The key name must be KVC-compliant (must not contain ".").
     @MainActor
     func updates(
         decoder: JSONDecoder = .init(),
@@ -190,10 +194,7 @@ public extension CodableDefaultsKey where Value: Sendable {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let notifications = NotificationCenter.default.notifications(
-            named: UserDefaults.didChangeNotification,
-            object: containerRef
-        )
+        let changes = _keyChanges(in: containerRef, key: keyName)
         return AsyncStream { continuation in
             // Initial
             let initial: Value
@@ -206,7 +207,7 @@ public extension CodableDefaultsKey where Value: Sendable {
 
             let task = Task { @MainActor in
                 var isScheduled = false
-                for await _ in notifications {
+                for await _ in changes {
                     if isScheduled { continue }
                     isScheduled = true
                     await Task.yield()
@@ -241,6 +242,9 @@ public extension CodableDefaultsKey where Value: Equatable & Sendable {
     }
 
     /// An AsyncSequence for Codable values that yields only when the decoded value actually changes.
+    ///
+    /// Observation is KVO-based: suite-scoped, cross-process, and per-key (writes to other
+    /// keys do not yield). The key name must be KVC-compliant (must not contain ".").
     @MainActor
     func distinctUpdates(
         decoder: JSONDecoder = .init(),
@@ -249,10 +253,7 @@ public extension CodableDefaultsKey where Value: Equatable & Sendable {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let notifications = NotificationCenter.default.notifications(
-            named: UserDefaults.didChangeNotification,
-            object: containerRef
-        )
+        let changes = _keyChanges(in: containerRef, key: keyName)
         return AsyncStream { continuation in
             let initial: Value
             if let data = containerRef.data(forKey: keyName) {
@@ -265,7 +266,7 @@ public extension CodableDefaultsKey where Value: Equatable & Sendable {
             let task = Task { @MainActor in
                 var isScheduled = false
                 var last = initial
-                for await _ in notifications {
+                for await _ in changes {
                     if isScheduled { continue }
                     isScheduled = true
                     await Task.yield()

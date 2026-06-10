@@ -134,10 +134,10 @@ Define strongly-typed keys that couple a name, default value, and container:
 
 ```swift
 // Raw key with default and optional custom container
-let countKey = DefaultsKey<Int>("settings.count", default: 0)
+let countKey = DefaultsKey<Int>("settings-count", default: 0)
 
 let suite = UserDefaults(suiteName: "com.example.app.tests")!
-let nameKey = DefaultsKey<String?>("settings.name", default: nil, container: suite)
+let nameKey = DefaultsKey<String?>("settings-name", default: nil, container: suite)
 ```
 
 ### `CodableDefaultsKey<Value>`
@@ -195,9 +195,10 @@ final class CounterVM: ObservableObject {
    - Updates are coalesced per runloop turn to avoid flooding.
    - If an external write results in the same value currently held, no publication occurs.
    - Raw type mismatch or invalid Codable data falls back to the key’s default. A publication occurs only if the value actually changes.
-- Container scoping and identity:
-   - Observers listen only to the specific UserDefaults instance provided to the key.
-   - Cross-instance writes (same suite, different UserDefaults object) are ignored by design. Inject and share the same UserDefaults instance across components that need to stay in sync.
+- Suite scoping (KVO-based, per-key):
+   - Observation is keyed to the *suite* of the UserDefaults container provided to the key, not the specific instance: writes through another `UserDefaults` object of the same suite — including writes from other processes sharing an app-group suite (widgets, extensions) — are observed.
+   - Writes to *other* keys never wake the wrapper.
+   - Key names must be KVC-compliant for observation to work: no "." and no leading "@" (see Known limitations).
 
 ### Codable support via `@ObservableUserDefault`
 
@@ -252,7 +253,7 @@ VMDefaults exposes Combine publishers and async sequences for both raw and Codab
 import Combine
 
 let suite = UserDefaults(suiteName: "com.example.app.react")!
-let key = DefaultsKey<Int>("react.count", default: 0, container: suite)
+let key = DefaultsKey<Int>("react-count", default: 0, container: suite)
 
 var cancellables = Set<AnyCancellable>()
 
@@ -271,7 +272,7 @@ key.distinctPublisher()
 
 ```swift
 let suite = UserDefaults(suiteName: "com.example.app.react")!
-let key = DefaultsKey<String?>("react.name", default: nil, container: suite)
+let key = DefaultsKey<String?>("react-name", default: nil, container: suite)
 
 Task { @MainActor in
     var iterator = key.distinctUpdates().makeAsyncIterator()
@@ -297,7 +298,7 @@ struct Settings: Codable, Equatable, Sendable {
 
 let suite = UserDefaults(suiteName: "com.example.app.react")!
 let key = CodableDefaultsKey<Settings>(
-    "react.settings",
+    "react-settings",
     default: .init(count: 0, name: "zero"),
     container: suite
 )
@@ -325,7 +326,7 @@ struct Settings: Codable, Equatable, Sendable {
 
 let suite = UserDefaults(suiteName: "com.example.app.react")!
 let key = CodableDefaultsKey<Settings>(
-    "react.settings",
+    "react-settings",
     default: .init(count: 0, name: "zero"),
     container: suite
 )
@@ -346,24 +347,25 @@ Task { @MainActor in
 - Initial emission is always the current value (or the key’s default if missing/invalid).
 - External change bursts are coalesced per runloop turn (you may see only the last value of a burst).
 - “Distinct” variants remove duplicate consecutive values.
-- Container scoping: streams observe only the provided UserDefaults instance (not .standard unless you explicitly use it).
-- Cross-instance writes (same suite, different UserDefaults object) are ignored by design — share the same UserDefaults instance where synchronization is required.
+- Observation is KVO-based and **per-key**: writes to other keys never wake your streams or wrappers.
+- Suite scoping: streams observe the *suite* of the provided UserDefaults container. Writes through a different `UserDefaults` instance of the same suite — and writes from other processes sharing an app-group suite (e.g. widgets/extensions) — are observed.
+- No-op writes are coalesced by UserDefaults: setting a key to a value equal to the one already stored does not fire observation.
 
 ## Known limitations
 
-- Cross-instance writes (same suite, different `UserDefaults` object) are ignored
-  - VMDefaults filters notifications by the exact `UserDefaults` instance provided to the key.
-  - If you create two different `UserDefaults(suiteName:)` instances for the same suite, changes posted by one instance won’t be observed by keys bound to the other instance.
-  - Recommendation: inject and share a single `UserDefaults` instance wherever you need synchronization.
+- Key names must be KVC-compliant for observation
+  - Observation is KVO-based; keys containing "." are interpreted by KVO as nested key paths and **will never fire** observation (keys must also not start with "@").
+  - A debug assertion flags such keys; in release builds observation silently never fires for them. Plain `get()`/`set()` work with any key name.
+  - Recommendation: use "-" or "_" as separators in key names (e.g. `"feature-flag"`, not `"feature.flag"`).
 
 - Coalescing and “latest value” semantics
   - Observable wrappers and async sequences coalesce external changes per runloop turn; you may only receive the last value of a burst.
   - “Distinct” variants remove duplicate consecutive values by design.
+  - Writes that don’t change the stored bytes don’t fire observation at all (UserDefaults-level KVO coalescing).
   - Treat streams as “latest value” feeds, not an event log.
 
-- Container scoping
-  - Streams and wrappers observe only the provided container (not `.standard` unless you explicitly use it).
-  - This is intentional to prevent accidental cross-container coupling.
+- Suite scoping
+  - Streams and wrappers observe the suite of the provided container (not `.standard` unless you explicitly use it). Different suites are fully isolated even for identical key names.
 
 - Not transactional or multi-key atomic
   - `UserDefaults` is not a transactional store; multi-key updates are not atomic.
@@ -406,7 +408,7 @@ VMDefaults is designed to compile cleanly and behave deterministically under Swi
 
         init(container: UserDefaults = .standard) {
             _isOnboardingComplete = ObservableUserDefault(
-                DefaultsKey("onboarding.complete", default: false, container: container)
+                DefaultsKey("onboarding-complete", default: false, container: container)
             )
             _ = isOnboardingComplete // eagerly install binding
         }
@@ -421,7 +423,7 @@ VMDefaults is designed to compile cleanly and behave deterministically under Swi
 ```swift
 let suite = UserDefaults(suiteName: "com.example.app.shared")!
     DispatchQueue.global().async {
-        suite.set(true, forKey: "onboarding.complete")
+        suite.set(true, forKey: "onboarding-complete")
     }
 ```
 
@@ -434,7 +436,7 @@ let suite = UserDefaults(suiteName: "com.example.app.shared")!
    - Async sequences (updates() / distinctUpdates()) are safe to iterate from @MainActor contexts. If you iterate off-main, hop to the main actor before mutating UI-bound state.
 
 ```swift
-let key = DefaultsKey<Int>("react.count", default: 0, container: .standard)
+let key = DefaultsKey<Int>("react-count", default: 0, container: .standard)
 
     Task.detached {
         for await value in key.distinctUpdates() {
@@ -446,8 +448,8 @@ let key = DefaultsKey<Int>("react.count", default: 0, container: .standard)
     }
 ```
 
-- Avoid cross-instance synchronization
-   - Synchronization relies on observing notifications from the exact UserDefaults instance provided to the key.
-   - If you need multiple components to stay in sync, inject and share the same UserDefaults instance (suite) across those components.
+- Cross-instance and cross-process synchronization
+   - Observation is KVO-based and suite-scoped: components bound to different `UserDefaults` instances of the same suite stay in sync, and writes from other processes sharing an app-group suite (widgets, extensions) are observed.
+   - Sharing a single injected `UserDefaults` instance is still good practice, but no longer required for synchronization.
    
 

@@ -59,7 +59,6 @@ struct CodableUserDefaultTests {
         let data = try JSONEncoder().encode(ext)
 
         defaults.set(data, forKey: key.name)
-        postDidChange(for: defaults)
 
         #expect(await waiter.value)
         #expect(vm.value == ext)
