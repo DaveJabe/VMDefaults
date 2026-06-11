@@ -17,7 +17,7 @@ struct VMDefaultsPerformanceTests {
     @MainActor
     func bulkSequentialLocalWritesReadsObservable() {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("perf.int.local", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("perf-int-local", default: 0, container: defaults)
         let vm = ObservableVM(key)
 
         let iterations = 2_000
@@ -42,7 +42,7 @@ struct VMDefaultsPerformanceTests {
     @MainActor
     func bulkSequentialExternalWritesObservable() async throws {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("perf.int.external", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("perf-int-external", default: 0, container: defaults)
         let vm = ObservableVM(key)
 
         let iterations = 1_000
@@ -51,7 +51,6 @@ struct VMDefaultsPerformanceTests {
 
         for i in 1...iterations {
             defaults.set(i, forKey: key.name)
-            postDidChange(for: defaults)
         }
 
         let duration = start.duration(to: clock.now)
@@ -68,7 +67,7 @@ struct VMDefaultsPerformanceTests {
     @MainActor
     func bulkSequentialLocalWritesReadsCodable() throws {
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<PSettings>("perf.codable.local", default: .init(count: 0, name: "zero"), container: defaults)
+        let key = CodableDefaultsKey<PSettings>("perf-codable-local", default: .init(count: 0, name: "zero"), container: defaults)
         let vm = CodableVM(key)
 
         let iterations = 500
@@ -92,7 +91,7 @@ struct VMDefaultsPerformanceTests {
     @MainActor
     func bulkSequentialExternalWritesCodable() async throws {
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<PSettings>("perf.codable.external", default: .init(count: 0, name: "zero"), container: defaults)
+        let key = CodableDefaultsKey<PSettings>("perf-codable-external", default: .init(count: 0, name: "zero"), container: defaults)
         let vm = CodableVM(key)
 
         let iterations = 300
@@ -103,7 +102,6 @@ struct VMDefaultsPerformanceTests {
             let payload = PSettings(count: i, name: "n\(i)")
             let data = try JSONEncoder().encode(payload)
             defaults.set(data, forKey: key.name)
-            postDidChange(for: defaults)
         }
 
         let duration = start.duration(to: clock.now)

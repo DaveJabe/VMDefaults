@@ -12,12 +12,12 @@ import VMDefaults
 // Use an isolated suite so we don't write to UserDefaults.standard in examples.
 let nonObsSuite = UserDefaults(suiteName: "VMDefaults.Examples.NonObs")!
 
-let rawKey = DefaultsKey<Int>("nonobs.raw", default: 42, container: nonObsSuite)
-let optKey = DefaultsKey<String?>("nonobs.opt", default: nil, container: nonObsSuite)
+let rawKey = DefaultsKey<Int>("nonobs-raw", default: 42, container: nonObsSuite)
+let optKey = DefaultsKey<String?>("nonobs-opt", default: nil, container: nonObsSuite)
 
 struct NonObsSettings: Codable, Equatable, Sendable { var count: Int; var name: String }
 let codableKey = CodableDefaultsKey<NonObsSettings>(
-    "nonobs.codable",
+    "nonobs-codable",
     default: .init(count: 0, name: "zero"),
     container: nonObsSuite
 )

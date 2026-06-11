@@ -13,7 +13,7 @@ import VMDefaults
 // Dedicated suite to avoid polluting standard defaults
 let combineSuite = UserDefaults(suiteName: "VMDefaults.Examples.Combine")!
 
-let combineKey = DefaultsKey<Int>("combine.counter", default: 0, container: combineSuite)
+let combineKey = DefaultsKey<Int>("combine-counter", default: 0, container: combineSuite)
 
 var combineCancellables: Set<AnyCancellable> = []
 
@@ -33,14 +33,9 @@ func demoCombinePublishers() {
         }
         .store(in: &combineCancellables)
 
-    // Produce some changes
+    // Produce some changes. Note: UserDefaults coalesces no-op writes at the KVO level,
+    // so re-setting the same value does not fire observation at all.
     combineSuite.set(1, forKey: combineKey.name)
-    NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: combineSuite)
-
-    combineSuite.set(1, forKey: combineKey.name)
-    NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: combineSuite)
-
     combineSuite.set(2, forKey: combineKey.name)
-    NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: combineSuite)
 }
 

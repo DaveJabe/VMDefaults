@@ -53,7 +53,6 @@ struct ObservableUserDefaultTests {
         await yieldForSubscriptionInstall()
 
         defaults.set("XYZ", forKey: key.name)
-        postDidChange(for: defaults)
 
         #expect(await waiter.value)
         #expect(vm.value == "XYZ")
@@ -125,7 +124,6 @@ struct ObservableUserDefaultTests {
         defaults.set(7, forKey: intKey.name)
         defaults.set(false, forKey: boolKey.name)
         defaults.set(2.71828, forKey: doubleKey.name)
-        postDidChange(for: defaults)
 
         #expect(await intWait.value)
         #expect(await boolWait.value)

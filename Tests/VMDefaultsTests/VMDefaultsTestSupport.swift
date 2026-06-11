@@ -26,10 +26,9 @@ func makeIsolatedDefaults() -> UserDefaults {
     return UserDefaults(suiteName: suite)!
 }
 
-/// Posts a `UserDefaults.didChangeNotification` for a given container.
-func postDidChange(for defaults: UserDefaults) {
-    NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
-}
+// Note: observation in VMDefaults is KVO-based (per-key, suite-scoped). Real writes via
+// `UserDefaults.set`/`removeObject` drive updates directly; manually posting
+// `UserDefaults.didChangeNotification` has no effect on the package and is not used in tests.
 
 // MARK: - Test helpers (waiting for objectWillChange)
 

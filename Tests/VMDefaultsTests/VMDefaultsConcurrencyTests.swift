@@ -17,7 +17,7 @@ struct VMDefaultsConcurrencyTests {
     @MainActor
     func concurrentExternalWritesObservable() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<String?>("conc.observable", default: nil, container: defaults)
+        let key = DefaultsKey<String?>("conc-observable", default: nil, container: defaults)
         let vm = ObservableVM(key)
 
         let values = (0..<50).map { "V\($0)" }
@@ -25,7 +25,6 @@ struct VMDefaultsConcurrencyTests {
         let tasks = values.map { v in
             Task { @Sendable in
                 defaults.set(v, forKey: key.name)
-                postDidChange(for: defaults)
             }
         }
         for t in tasks { _ = await t.value }
@@ -43,7 +42,7 @@ struct VMDefaultsConcurrencyTests {
         struct CSettings: Codable, Equatable, Sendable { var count: Int; var name: String }
 
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<CSettings>("conc.codable", default: .init(count: 0, name: "zero"), container: defaults)
+        let key = CodableDefaultsKey<CSettings>("conc-codable", default: .init(count: 0, name: "zero"), container: defaults)
         let vm = CodableVM(key)
 
         let pairs = (0..<40).map { (i: $0, s: "n\($0)") }
@@ -53,7 +52,6 @@ struct VMDefaultsConcurrencyTests {
                 let payload = CSettings(count: pair.i, name: pair.s)
                 let data = try JSONEncoder().encode(payload)
                 defaults.set(data, forKey: key.name)
-                postDidChange(for: defaults)
             }
         }
         for t in tasks { _ = try await t.value }
@@ -68,7 +66,7 @@ struct VMDefaultsConcurrencyTests {
     @MainActor
     func concurrentMainActorLocalWritesObservable() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<Int>("conc.local.observable", default: 0, container: defaults)
+        let key = DefaultsKey<Int>("conc-local-observable", default: 0, container: defaults)
         let vm = ObservableVM(key)
 
         let iterations = 500
@@ -86,7 +84,7 @@ struct VMDefaultsConcurrencyTests {
     @MainActor
     func mixedLocalAndExternalWritesObservable() async {
         let defaults = makeIsolatedDefaults()
-        let key = DefaultsKey<String?>("conc.mixed.observable", default: nil, container: defaults)
+        let key = DefaultsKey<String?>("conc-mixed-observable", default: nil, container: defaults)
         let vm = ObservableVM(key)
 
         let iterations = 200
@@ -97,7 +95,6 @@ struct VMDefaultsConcurrencyTests {
             tasks.append(Task { @MainActor in vm.value = "L\(i)" })
             tasks.append(Task { @Sendable in
                 defaults.set("E\(i)", forKey: key.name)
-                postDidChange(for: defaults)
             })
         }
 
@@ -119,7 +116,7 @@ struct VMDefaultsConcurrencyTests {
         struct MSettings: Codable, Equatable, Sendable { var count: Int; var name: String }
 
         let defaults = makeIsolatedDefaults()
-        let key = CodableDefaultsKey<MSettings>("conc.mixed.codable", default: .init(count: 0, name: "zero"), container: defaults)
+        let key = CodableDefaultsKey<MSettings>("conc-mixed-codable", default: .init(count: 0, name: "zero"), container: defaults)
         let vm = CodableVM(key)
 
         let iterations = 150
@@ -134,7 +131,6 @@ struct VMDefaultsConcurrencyTests {
                 let payload = MSettings(count: i, name: "E\(i)")
                 let data = try JSONEncoder().encode(payload)
                 defaults.set(data, forKey: key.name)
-                postDidChange(for: defaults)
             })
         }
 

@@ -12,12 +12,12 @@ import VMDefaults
 // MARK: - Raw keys
 
 // Primitive types
-let intKey = DefaultsKey<Int>("examples.int", default: 0)
-let boolKey = DefaultsKey<Bool>("examples.bool", default: false)
-let doubleKey = DefaultsKey<Double>("examples.double", default: 0.0)
+let intKey = DefaultsKey<Int>("examples-int", default: 0)
+let boolKey = DefaultsKey<Bool>("examples-bool", default: false)
+let doubleKey = DefaultsKey<Double>("examples-double", default: 0.0)
 
 // Optional types (nil removes the key)
-let optionalStringKey = DefaultsKey<String?>("examples.optionalString", default: nil)
+let optionalStringKey = DefaultsKey<String?>("examples-optionalString", default: nil)
 
 // MARK: - Codable keys
 
@@ -27,7 +27,7 @@ struct ExampleSettings: Codable, Equatable, Sendable {
 }
 
 let settingsKey = CodableDefaultsKey<ExampleSettings>(
-    "examples.settings",
+    "examples-settings",
     default: .init(count: 0, name: "zero")
 )
 
@@ -37,7 +37,7 @@ let settingsKey = CodableDefaultsKey<ExampleSettings>(
 let examplesSuite = UserDefaults(suiteName: "VMDefaults.Examples")!
 
 let suiteKey = DefaultsKey<String?>(
-    "examples.suiteScoped",
+    "examples-suiteScoped",
     default: nil,
     container: examplesSuite
 )

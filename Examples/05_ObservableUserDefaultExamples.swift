@@ -19,7 +19,7 @@ final class CounterVM: ObservableObject {
     @ObservableUserDefault var count: Int
 
     init() {
-        let key = DefaultsKey<Int>("obs.counter", default: 0, container: obsSuite)
+        let key = DefaultsKey<Int>("obs-counter", default: 0, container: obsSuite)
         _count = ObservableUserDefault(key)
         _ = count // install binding eagerly for example prints
     }
@@ -36,7 +36,7 @@ final class ProfileVM: ObservableObject {
     @ObservableUserDefault var profile: Profile
 
     init() {
-        let key = CodableDefaultsKey<Profile>("obs.profile", default: .init(name: "Anonymous", age: 0), container: obsSuite)
+        let key = CodableDefaultsKey<Profile>("obs-profile", default: .init(name: "Anonymous", age: 0), container: obsSuite)
         _profile = ObservableUserDefault(key)
         _ = profile
     }
@@ -61,13 +61,11 @@ func demoObservableUserDefault() async {
     profileVM.updateName("Taylor")
 
     // External writes (simulate another screen)
-    obsSuite.set(10, forKey: DefaultsKey<Int>("obs.counter", default: 0, container: obsSuite).name)
-    NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: obsSuite)
+    obsSuite.set(10, forKey: DefaultsKey<Int>("obs-counter", default: 0, container: obsSuite).name)
 
     let extProfile = Profile(name: "Jordan", age: 28)
     if let data = try? JSONEncoder().encode(extProfile) {
-        obsSuite.set(data, forKey: CodableDefaultsKey<Profile>("obs.profile", default: .init(name: "Anonymous", age: 0), container: obsSuite).name)
-        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: obsSuite)
+        obsSuite.set(data, forKey: CodableDefaultsKey<Profile>("obs-profile", default: .init(name: "Anonymous", age: 0), container: obsSuite).name)
     }
 
     // Give the coalescing loop a moment to run in this demo context

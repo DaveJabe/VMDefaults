@@ -28,49 +28,47 @@ extension Optional: _AnyOptional {
 /// Internal observable box that:
 /// - caches the current value
 /// - publishes changes
-/// - listens to `UserDefaults.didChangeNotification` and re-reads its value
+/// - key-value observes its key and re-reads its value when the key changes
+///
+/// Observation is KVO-based (see `UserDefaultsKeyObservation`): it is suite-scoped (writes
+/// through any `UserDefaults` instance of the same suite are seen), cross-process (app-group
+/// writes from extensions/widgets are seen), and per-key (writes to other keys do not wake
+/// this box). The observed key must be KVC-compliant (no "."); see `UserDefaultsKeyObservation`.
 ///
 /// The `read`/`write` closures allow different storage strategies (raw property-list vs Codable).
 @MainActor
 final class DefaultsBox<Value: Equatable & Sendable> {
-    private let container: UserDefaults
     private let read: @MainActor () -> Value
     private let write: @MainActor (Value) -> Void
+    private var observation: UserDefaultsKeyObservation?
 
     @Published private(set) var value: Value
 
     init(
         container: UserDefaults,
+        key: String,
         initialValue: Value,
         read: @escaping @MainActor () -> Value,
         write: @escaping @MainActor (Value) -> Void
     ) {
-        self.container = container
         self.value = initialValue
         self.read = read
         self.write = write
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(userDefaultsDidChange),
-            name: UserDefaults.didChangeNotification,
-            object: container
-        )
+        self.observation = UserDefaultsKeyObservation(defaults: container, key: key) { [weak self] in
+            // KVO delivers synchronously on the writing thread, which may not be the main
+            // thread. Hop to the main actor; coalescedRefresh() is idempotent (guard
+            // latest != value), so burst changes all resolve to a single value update at most.
+            Task { @MainActor [weak self] in self?.coalescedRefresh() }
+        }
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    // No explicit deinit needed: dropping `observation` invalidates the KVO registration.
 
     func set(_ newValue: Value) {
         guard newValue != value else { return }
         value = newValue
         write(newValue)
-    }
-
-    @objc nonisolated private func userDefaultsDidChange() {
-        // NotificationCenter delivers on the posting thread, which may not be the main thread.
-        // Hop to the main actor; coalescedRefresh() is idempotent (guard latest != value),
-        // so burst notifications all resolve to a single value update at most.
-        Task { @MainActor [weak self] in self?.coalescedRefresh() }
     }
 
     private func coalescedRefresh() {
@@ -84,7 +82,12 @@ final class DefaultsBox<Value: Equatable & Sendable> {
 
 @MainActor
 func _readRaw<Value: PropertyListValue>(from defaults: UserDefaults, key: String, defaultValue: Value) -> Value {
-    (defaults.object(forKey: key) as? Value) ?? defaultValue
+    // The missing-key path must be guarded explicitly: when `Value` is Optional<T> and the
+    // key is absent, `nil as? Optional<T>` *succeeds* as `.some(nil)`, so a single-expression
+    // `(defaults.object(forKey:) as? Value) ?? defaultValue` would never fall back to a
+    // non-nil default for Optional-typed keys.
+    guard let object = defaults.object(forKey: key) else { return defaultValue }
+    return (object as? Value) ?? defaultValue
 }
 
 @MainActor
