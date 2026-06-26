@@ -29,6 +29,13 @@ VMDefaults provides lightweight property wrappers that:
     - [Error handling (optional)](#error-handling-optional)
     - [Migrating from @AppStorage](#migrating-from-appstorage)
 - [Reactive APIs](#reactive-apis)
+- [Additional APIs](#additional-apis)
+  - [Eager activation](#eager-activation)
+  - [Raw storage of enums, URL, and UUID](#raw-storage-of-enums-url-and-uuid)
+  - [reset() / isStored](#reset--isstored)
+  - [App-group helper](#app-group-helper)
+  - [Debounced async updates](#debounced-async-updates)
+  - [Using `@Observable`](#using-observable-observation-framework)
 - [Known limitations](#known-limitations)
 - [Concurrency model](#concurrency-model)
 - [Testing](#testing)
@@ -120,9 +127,7 @@ Or in `Package.swift`:
 ```swift
 dependencies: [
     // Replace the URL below with this repository's URL.
-    // No versioned tag is published yet — track the main branch until a release is tagged,
-    // then switch to `from: "x.y.z"`.
-    .package(url: "https://github.com/your-org/VMDefaults.git", branch: "main")
+    .package(url: "https://github.com/your-org/VMDefaults.git", from: "0.1.0")
 ]
 ```
 
@@ -536,5 +541,31 @@ let key = DefaultsKey<Int>("react-count", default: 0, container: .standard)
    - Observation is KVO-based and suite-scoped: components bound to different `UserDefaults` instances of the same suite stay in sync, and writes from other processes sharing an app-group suite (widgets, extensions) are observed.
    - **Same-process** writes are delivered synchronously on the writing thread (VMDefaults then hops to the main actor). **Cross-process** delivery is different: it is mediated by the preferences daemon (`cfprefsd`), so it is asynchronous and *eventually* consistent — most reliable in the foreground and not guaranteed while a process is suspended/backgrounded. Treat cross-process streams as a "latest value" feed, not a real-time event log.
    - Within a process, sharing a single injected `UserDefaults` instance is still good practice but no longer required for synchronization.
-   
 
+## Testing
+
+Run the suite with:
+
+```sh
+swift test
+```
+
+The package is continuously built and tested on macOS via GitHub Actions (see `.github/workflows/ci.yml`), with warnings treated as errors so the strict-concurrency contract cannot silently regress.
+
+Writing tests against your own view models is straightforward because every key takes an injectable `UserDefaults` container. Give each test an isolated suite so cases don't bleed into `.standard` or each other:
+
+```swift
+func makeIsolatedDefaults() -> UserDefaults {
+    UserDefaults(suiteName: "MyAppTests.\(UUID().uuidString)")!
+}
+
+@MainActor
+func testCounterIncrements() {
+    let defaults = makeIsolatedDefaults()
+    let vm = CounterVM(container: defaults)
+    vm.increment()
+    #expect(vm.count == 1)
+}
+```
+
+You can also rebind a production key to a test container with `key.with(container:)`, and assert reactive behavior by observing `objectWillChange` or by collecting from `updates()` / `publisher()`.
