@@ -9,7 +9,8 @@
 import Foundation
 import VMDefaults
 
-let asyncSuite = UserDefaults(suiteName: "VMDefaults.Examples.Async")!
+// `nonisolated(unsafe)`: UserDefaults is thread-safe but not `Sendable`, so a global needs the opt-out.
+nonisolated(unsafe) let asyncSuite = UserDefaults(suiteName: "VMDefaults.Examples.Async")!
 let asyncRawKey = DefaultsKey<String?>("async-raw", default: nil, container: asyncSuite)
 
 struct AsyncSettings: Codable, Equatable, Sendable { var count: Int; var name: String }

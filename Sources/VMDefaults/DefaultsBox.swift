@@ -44,6 +44,15 @@ final class DefaultsBox<Value: Equatable & Sendable> {
 
     @Published private(set) var value: Value
 
+    #if DEBUG
+    /// Set by the wrapper's `ensureBound` once change-forwarding is installed. Used only to emit
+    /// a one-time debug warning when an external write refreshes a box whose SwiftUI forwarding
+    /// was never activated — the classic "forgot `activateDefaultsBindings()` / `_ = property`"
+    /// trap where the value silently updates but SwiftUI never re-renders.
+    var hasForwardingBinding = false
+    private var didWarnUnbound = false
+    #endif
+
     init(
         container: UserDefaults,
         key: String,
@@ -75,6 +84,17 @@ final class DefaultsBox<Value: Equatable & Sendable> {
         let latest = read()
         guard latest != value else { return }
         value = latest
+        #if DEBUG
+        if !hasForwardingBinding && !didWarnUnbound {
+            didWarnUnbound = true
+            print("""
+            [VMDefaults] An external UserDefaults write changed a property whose \
+            @ObservableUserDefault change-forwarding was never activated, so SwiftUI will not \
+            re-render for it. Call `activateDefaultsBindings()` in your view model's init (or read \
+            the property once) to enable forwarding. (DEBUG-only; fires at most once per property.)
+            """)
+        }
+        #endif
     }
 }
 
@@ -96,12 +116,62 @@ func _writeRaw<Value: PropertyListValue>(to defaults: UserDefaults, key: String,
         if opt._isNil {
             defaults.removeObject(forKey: key)
         } else {
-            // Unwrap before storing: Optional<T> is not a valid property list type.
-            // UserDefaults.standard silently rejects Optional wrappers without unwrapping.
+            // Unwrap one level before storing: `Optional<T>` is not a valid property list type and
+            // UserDefaults silently rejects it. A *single* level is provably sufficient here:
+            // `PropertyListValue` only conforms `Optional` where `Wrapped: NonOptionalPropertyListValue`
+            // (see PropertyListValue+VMDefaults.swift), so the unwrapped payload is never itself an
+            // Optional and is always a valid property-list object.
             defaults.set(opt._unwrapped, forKey: key)
         }
     } else {
         defaults.set(newValue, forKey: key)
+    }
+}
+
+// MARK: - Codable read/write helpers
+
+/// Decodes the value stored at `key` as JSON, returning `defaultValue` when the key is missing or
+/// decoding fails. Decode failures are routed through `onError` (falling back to the global
+/// `VMDefaultsCoding.defaultOnError`). Centralizes the read path shared by every Codable accessor
+/// and `@ObservableUserDefault` Codable initializer so error-reporting behavior cannot drift.
+@MainActor
+func _readCodable<Value: Codable>(
+    from defaults: UserDefaults,
+    key: String,
+    defaultValue: Value,
+    decoder: JSONDecoder,
+    onError: (@Sendable (Error) -> Void)?
+) -> Value {
+    guard let data = defaults.data(forKey: key) else { return defaultValue }
+    do {
+        return try decoder.decode(Value.self, from: data)
+    } catch {
+        (onError ?? VMDefaultsCoding.defaultOnError)?(error)
+        return defaultValue
+    }
+}
+
+/// Encodes `newValue` as JSON and stores it at `key`. An `Optional.none` removes the key (so a
+/// missing key reads back as the default). Encode failures are routed through `onError` (falling
+/// back to `VMDefaultsCoding.defaultOnError`). Centralizes the write path shared by every Codable
+/// accessor and `@ObservableUserDefault` Codable initializer.
+@MainActor
+func _writeCodable<Value: Codable>(
+    to defaults: UserDefaults,
+    key: String,
+    newValue: Value,
+    encoder: JSONEncoder,
+    onError: (@Sendable (Error) -> Void)?
+) {
+    if let opt = newValue as? _AnyOptional, opt._isNil {
+        defaults.removeObject(forKey: key)
+        return
+    }
+    do {
+        let data = try encoder.encode(newValue)
+        defaults.set(data, forKey: key)
+    } catch {
+        (onError ?? VMDefaultsCoding.defaultOnError)?(error)
     }
 }
 

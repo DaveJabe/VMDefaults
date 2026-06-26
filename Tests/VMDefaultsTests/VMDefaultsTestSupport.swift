@@ -84,6 +84,13 @@ func yieldForSubscriptionInstall() async {
     await Task.yield()
 }
 
+/// Lets any pending main-actor tasks (e.g. KVO-driven `coalescedRefresh` hops) run and gives ARC
+/// a moment to settle, without a wall-clock sleep. Used by deallocation tests.
+@MainActor
+func drainMainActor(turns: Int = 8) async {
+    for _ in 0..<turns { await Task.yield() }
+}
+
 // MARK: - Generic test view models
 
 /// Minimal `ObservableObject` used to test `@ObservableUserDefault` across many `Value` types.

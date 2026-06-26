@@ -20,11 +20,26 @@ let package = Package(
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "VMDefaults"
+            name: "VMDefaults",
+            swiftSettings: [
+                // Make the strict-concurrency contract self-documenting (and guard against a future
+                // tools-version downgrade) rather than relying on the tools-version 6.2 default.
+                .swiftLanguageMode(.v6)
+            ]
         ),
         .testTarget(
             name: "VMDefaultsTests",
-            dependencies: ["VMDefaults"]
+            dependencies: ["VMDefaults"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Compiled home for the snippets in Examples/, so they cannot drift from the public API.
+        // Built by `swift build`; not exposed as a product.
+        .target(
+            name: "Examples",
+            dependencies: ["VMDefaults"],
+            path: "Examples",
+            exclude: ["README.md"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
 )

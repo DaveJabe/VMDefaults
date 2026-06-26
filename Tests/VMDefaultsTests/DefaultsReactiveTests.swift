@@ -28,7 +28,12 @@ struct DefaultsReactiveTests {
         defaults.set(1, forKey: key.name)
         defaults.set(2, forKey: key.name)
 
-        try? await Task.sleep(nanoseconds: 30_000_000)
+        // Poll until the final value is observed rather than guessing a fixed delay (de-flake).
+        var attempts = 0
+        while received.last != 2 && attempts < 200 {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+            attempts += 1
+        }
 
         let okSequences: [[Int]] = [[0, 1, 2], [0, 2]]
         #expect(okSequences.contains(where: { $0 == received }))
@@ -93,7 +98,12 @@ struct DefaultsReactiveTests {
         defaults.set(try JSONEncoder().encode(a), forKey: key.name)
         defaults.set(try JSONEncoder().encode(b), forKey: key.name)
 
-        try? await Task.sleep(nanoseconds: 30_000_000)
+        // Poll until the final value is observed rather than guessing a fixed delay (de-flake).
+        var attempts = 0
+        while received.last != b && attempts < 200 {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+            attempts += 1
+        }
         let okCodablePub: [[RSettings]] = [[.init(count: 0, name: "zero"), a, b], [.init(count: 0, name: "zero"), b]]
         #expect(okCodablePub.contains(where: { $0 == received }))
 

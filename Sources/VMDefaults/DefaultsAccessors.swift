@@ -8,6 +8,47 @@
 import Foundation
 import Combine
 
+// MARK: - Shared coalescing engine
+
+/// Builds an `AsyncStream` that yields the current value immediately, then re-reads and yields
+/// after each KVO change to `key`.
+///
+/// Bursts within a single runloop turn are coalesced to one yield: the underlying `_keyChanges`
+/// stream buffers only the newest change (`.bufferingNewest(1)`), and the `Task.yield()` lets a
+/// burst land before the re-read. When `isDuplicate` is supplied, consecutive equal values are
+/// suppressed (the "distinct" variants); when it is `nil`, every change yields.
+///
+/// This is the single source of truth for the raw and Codable `updates()`/`distinctUpdates()`
+/// accessors — they differ only in their `read` closure and whether they pass `isDuplicate`.
+@MainActor
+func _coalescedStream<Value: Sendable>(
+    in defaults: UserDefaults,
+    key: String,
+    read: @escaping @MainActor () -> Value,
+    isDuplicate: (@MainActor (Value, Value) -> Bool)? = nil
+) -> AsyncStream<Value> {
+    let changes = _keyChanges(in: defaults, key: key)
+    return AsyncStream { continuation in
+        let initial = read()
+        continuation.yield(initial)
+
+        let task = Task { @MainActor in
+            var last = initial
+            for await _ in changes {
+                await Task.yield() // collapse a burst within one runloop turn before re-reading
+                let latest = read()
+                if let isDuplicate, isDuplicate(latest, last) { continue }
+                last = latest
+                continuation.yield(latest)
+            }
+        }
+
+        continuation.onTermination = { _ in task.cancel() }
+    }
+}
+
+// MARK: - Raw keys
+
 public extension DefaultsKey where Value: PropertyListValue {
     /// Returns the current value for this key from its container, or the key’s default if missing.
     ///
@@ -53,25 +94,9 @@ public extension DefaultsKey where Value: PropertyListValue & Sendable {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let changes = _keyChanges(in: containerRef, key: keyName)
-        return AsyncStream { continuation in
-            let initial = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
-            continuation.yield(initial)
-
-            let task = Task { @MainActor in
-                var isScheduled = false
-                for await _ in changes {
-                    if isScheduled { continue }
-                    isScheduled = true
-                    await Task.yield() // collapse bursts into one refresh
-                    isScheduled = false
-                    let latest = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
-                    continuation.yield(latest)
-                }
-            }
-
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        return _coalescedStream(in: containerRef, key: keyName, read: {
+            _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
+        })
     }
 }
 
@@ -91,31 +116,13 @@ public extension DefaultsKey where Value: PropertyListValue & Equatable & Sendab
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let changes = _keyChanges(in: containerRef, key: keyName)
-        return AsyncStream { continuation in
-            let initial = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
-            continuation.yield(initial)
-
-            let task = Task { @MainActor in
-                var isScheduled = false
-                var last = initial
-                for await _ in changes {
-                    if isScheduled { continue }
-                    isScheduled = true
-                    await Task.yield()
-                    isScheduled = false
-                    let latest = _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
-                    if !(latest == last) {
-                        last = latest
-                        continuation.yield(latest)
-                    }
-                }
-            }
-
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        return _coalescedStream(in: containerRef, key: keyName, read: {
+            _readRaw(from: containerRef, key: keyName, defaultValue: defaultVal)
+        }, isDuplicate: { $0 == $1 })
     }
 }
+
+// MARK: - Codable keys
 
 public extension CodableDefaultsKey where Value: Sendable {
     /// Returns the current Codable value for this key by decoding JSON `Data` from its container,
@@ -125,15 +132,7 @@ public extension CodableDefaultsKey where Value: Sendable {
         decoder: JSONDecoder = .init(),
         onError: (@Sendable (Error) -> Void)? = nil
     ) -> Value {
-        guard let data = container.data(forKey: name) else {
-            return defaultValue
-        }
-        do {
-            return try decoder.decode(Value.self, from: data)
-        } catch {
-            (onError ?? VMDefaultsCoding.defaultOnError)?(error)
-            return defaultValue
-        }
+        _readCodable(from: container, key: name, defaultValue: defaultValue, decoder: decoder, onError: onError)
     }
 
     /// Encodes and stores a Codable value for this key using JSON.
@@ -144,16 +143,7 @@ public extension CodableDefaultsKey where Value: Sendable {
         encoder: JSONEncoder = .init(),
         onError: (@Sendable (Error) -> Void)? = nil
     ) {
-        if let opt = value as? _AnyOptional, opt._isNil {
-            container.removeObject(forKey: name)
-            return
-        }
-        do {
-            let data = try encoder.encode(value)
-            container.set(data, forKey: name)
-        } catch {
-            (onError ?? VMDefaultsCoding.defaultOnError)?(error)
-        }
+        _writeCodable(to: container, key: name, newValue: value, encoder: encoder, onError: onError)
     }
 
     /// A Combine publisher that decodes JSON Data for this key and emits the current and future values.
@@ -165,13 +155,8 @@ public extension CodableDefaultsKey where Value: Sendable {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let decode: () -> Value = {
-            if let data = containerRef.data(forKey: keyName) {
-                do { return try decoder.decode(Value.self, from: data) }
-                catch { (onError ?? VMDefaultsCoding.defaultOnError)?(error); return defaultVal }
-            } else {
-                return defaultVal
-            }
+        let decode: @MainActor () -> Value = {
+            _readCodable(from: containerRef, key: keyName, defaultValue: defaultVal, decoder: decoder, onError: onError)
         }
         return Deferred {
             UserDefaultsKeyChangePublisher(defaults: containerRef, key: keyName)
@@ -194,40 +179,9 @@ public extension CodableDefaultsKey where Value: Sendable {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let changes = _keyChanges(in: containerRef, key: keyName)
-        return AsyncStream { continuation in
-            // Initial
-            let initial: Value
-            if let data = containerRef.data(forKey: keyName) {
-                initial = (try? decoder.decode(Value.self, from: data)) ?? defaultVal
-            } else {
-                initial = defaultVal
-            }
-            continuation.yield(initial)
-
-            let task = Task { @MainActor in
-                var isScheduled = false
-                for await _ in changes {
-                    if isScheduled { continue }
-                    isScheduled = true
-                    await Task.yield()
-                    isScheduled = false
-                    if let data = containerRef.data(forKey: keyName) {
-                        do {
-                            let value = try decoder.decode(Value.self, from: data)
-                            continuation.yield(value)
-                        } catch {
-                            (onError ?? VMDefaultsCoding.defaultOnError)?(error)
-                            continuation.yield(defaultVal)
-                        }
-                    } else {
-                        continuation.yield(defaultVal)
-                    }
-                }
-            }
-
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        return _coalescedStream(in: containerRef, key: keyName, read: {
+            _readCodable(from: containerRef, key: keyName, defaultValue: defaultVal, decoder: decoder, onError: onError)
+        })
     }
 }
 
@@ -253,47 +207,8 @@ public extension CodableDefaultsKey where Value: Equatable & Sendable {
         let containerRef = container
         let keyName = name
         let defaultVal = defaultValue
-        let changes = _keyChanges(in: containerRef, key: keyName)
-        return AsyncStream { continuation in
-            let initial: Value
-            if let data = containerRef.data(forKey: keyName) {
-                initial = (try? decoder.decode(Value.self, from: data)) ?? defaultVal
-            } else {
-                initial = defaultVal
-            }
-            continuation.yield(initial)
-
-            let task = Task { @MainActor in
-                var isScheduled = false
-                var last = initial
-                for await _ in changes {
-                    if isScheduled { continue }
-                    isScheduled = true
-                    await Task.yield()
-                    isScheduled = false
-                    if let data = containerRef.data(forKey: keyName) {
-                        do {
-                            let value = try decoder.decode(Value.self, from: data)
-                            if !(value == last) {
-                                last = value
-                                continuation.yield(value)
-                            }
-                        } catch {
-                            (onError ?? VMDefaultsCoding.defaultOnError)?(error)
-                            if !(defaultVal == last) {
-                                last = defaultVal
-                                continuation.yield(defaultVal)
-                            }
-                        }
-                    } else if !(defaultVal == last) {
-                        last = defaultVal
-                        continuation.yield(defaultVal)
-                    }
-                }
-            }
-
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        return _coalescedStream(in: containerRef, key: keyName, read: {
+            _readCodable(from: containerRef, key: keyName, defaultValue: defaultVal, decoder: decoder, onError: onError)
+        }, isDuplicate: { $0 == $1 })
     }
 }
-

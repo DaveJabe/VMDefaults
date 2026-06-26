@@ -100,8 +100,8 @@ You should not use VMDefaults if any of the following apply:
 
 ## Requirements
 
-- Swift 6
-- iOS 16 or later
+- Swift 6.2 toolchain (the package declares `swift-tools-version: 6.2` and builds in the Swift 6 language mode)
+- iOS 16+ / macOS 13+ (tvOS, watchOS, and visionOS are not declared or tested)
 - SwiftUI and `ObservableObject`
 - `UserDefaults`
 
@@ -119,8 +119,10 @@ Or in `Package.swift`:
 
 ```swift
 dependencies: [
-    // Replace the URL below with this repository's URL
-    .package(url: "https://github.com/your-org/VMDefaults.git", from: "1.0.0")
+    // Replace the URL below with this repository's URL.
+    // No versioned tag is published yet — track the main branch until a release is tagged,
+    // then switch to `from: "x.y.z"`.
+    .package(url: "https://github.com/your-org/VMDefaults.git", branch: "main")
 ]
 ```
 
@@ -163,9 +165,18 @@ The `PropertyListValue` marker protocol is used to constrain raw (non-Codable) k
 
 - String, Int, Double, Bool
 - Data, Date
-- Array<Element> where Element: PropertyListValue
-- Dictionary<String, Value> where Value: PropertyListValue
-- Optional<Wrapped> where Wrapped: PropertyListValue
+- `Array<Element>` where `Element` is a **non-optional** property-list value
+- `Dictionary<String, Value>` where `Value` is a **non-optional** property-list value
+- `Optional<Wrapped>` where `Wrapped` is a **non-optional** property-list value (top-level optionals only)
+
+> **Optional shapes are deliberately restricted.** Collection-of-optional and nested-optional keys
+> — `[Int?]`, `[String: Int?]`, `Int??` — are rejected at **compile time**. Stored as a property
+> list they would contain a null, which CoreFoundation rejects by `abort()`-ing the process (in
+> release builds too). For optional elements use a `CodableDefaultsKey`. A top-level optional
+> (`DefaultsKey<Int?>`) is fully supported: `nil` maps to `removeObject`.
+
+For non-property-list scalars such as `RawRepresentable` enums, `URL`, and `UUID`, see
+[Raw storage of enums, URL, and UUID](#raw-storage-of-enums-url-and-uuid) below.
 
 
 ### `@ObservableUserDefault`
@@ -180,11 +191,21 @@ final class CounterVM: ObservableObject {
     init(container: UserDefaults = .standard) {
         let key = DefaultsKey<Int>("counter", default: 0, container: container)
         _count = ObservableUserDefault(key)
-        _ = count // install binding eagerly (ensures immediate forwarding)
+        activateDefaultsBindings() // install change-forwarding eagerly (see note below)
     }
 
     func increment() { count += 1 }
 }
+```
+
+> **Activate your bindings.** A property wrapper can't reach its enclosing instance until the
+> property is first read, so change-forwarding installs lazily on first access. A property that is
+> never read through the instance (e.g. a `private` flag) would therefore not refresh SwiftUI on
+> external writes. Call `activateDefaultsBindings()` once at the end of `init` to bind every
+> `@ObservableUserDefault` property up front. (Reading `_ = count` in `init` also works for a single
+> property, but `activateDefaultsBindings()` is preferred — it's discoverable, covers all
+> properties, and isn't silently stripped by linters. In DEBUG builds, an external write to an
+> unactivated property logs a one-time warning.)
 ```
 #### Publishing semantics
 
@@ -351,6 +372,65 @@ Task { @MainActor in
 - Suite scoping: streams observe the *suite* of the provided UserDefaults container. Writes through a different `UserDefaults` instance of the same suite — and writes from other processes sharing an app-group suite (e.g. widgets/extensions) — are observed.
 - No-op writes are coalesced by UserDefaults: setting a key to a value equal to the one already stored does not fire observation.
 
+## Additional APIs
+
+### Eager activation
+
+Call `activateDefaultsBindings()` once in your `ObservableObject`'s `init` to install change-forwarding for **all** of its `@ObservableUserDefault` properties up front (see the note under [`@ObservableUserDefault`](#observableuserdefault)). This replaces the per-property `_ = myProperty` idiom.
+
+### Raw storage of enums, URL, and UUID
+
+`TransformedDefaultsKey` persists a value that is not itself a property-list type by storing a property-list representation of it — without the JSON-blob cost of `CodableDefaultsKey`:
+
+```swift
+enum Theme: String { case light, dark, system }
+
+// Stored as the raw String "dark" (not JSON):
+let themeKey = TransformedDefaultsKey(rawRepresentable: "theme", default: Theme.system)
+let urlKey   = TransformedDefaultsKey(url: "homepage", default: URL(string: "https://example.com")!)   // absoluteString
+let idKey    = TransformedDefaultsKey(uuid: "device-id", default: UUID())                                // uuidString
+
+themeKey.set(.dark)
+let theme = themeKey.get()                  // .dark
+let vmKey = ObservableUserDefault(themeKey) // also works inside @ObservableUserDefault
+```
+
+`get()`/`set()`/`reset()`/`updates()`/`distinctUpdates()` are available, and an `@ObservableUserDefault` initializer accepts a `TransformedDefaultsKey`. An unknown stored raw value (e.g. an enum case that no longer exists) falls back to the key's default. You can also supply custom `encode`/`decode` transforms via the designated initializer. (Note: this representation is **not** the archived format `@AppStorage` uses for `URL`.)
+
+### reset() / isStored
+
+```swift
+key.set(5)
+key.isStored   // true
+key.reset()    // removes the stored value; reads now return the default
+key.isStored   // false
+```
+
+Available on `DefaultsKey`, `CodableDefaultsKey`, and `TransformedDefaultsKey`.
+
+### App-group helper
+
+```swift
+guard let shared = UserDefaults.appGroup("group.com.example.app") else { return }
+let key = DefaultsKey("flag", default: false, container: shared)
+```
+
+Prefer this over `UserDefaults(suiteName:)!` — the force-unwrap is a crash hazard when an extension's App Groups entitlement is misconfigured.
+
+### Debounced async updates
+
+Combine consumers can chain `.debounce`/`.throttle` on `publisher()`; for the async streams use `debouncedUpdates(for:)` (available on `DefaultsKey` and `CodableDefaultsKey`):
+
+```swift
+for await value in key.debouncedUpdates(for: .milliseconds(300)) {
+    // fires only after 300ms of quiet — good for rate-limiting expensive reactions
+}
+```
+
+### Using `@Observable` (Observation framework)
+
+`@ObservableUserDefault` targets `ObservableObject` by design. If your app uses the `@Observable` macro (iOS 17+), drive a plain `@Observable` property from a key's `distinctUpdates()` stream and write back with `set(_:)`. See `Examples/06_ObservableMacroRecipe.swift` for the full recipe.
+
 ## Known limitations
 
 - Key names must be KVC-compliant for observation
@@ -379,6 +459,10 @@ Task { @MainActor in
 - Optional semantics
   - Setting an optional raw or Codable value to `nil` removes the key.
   - Reads of a missing key return the key’s default (often `nil` for optional keys).
+  - Because a missing key and a stored `nil` are indistinguishable, an Optional key's default should normally be `nil`. With a **non-nil** default (e.g. `DefaultsKey<Int?>("k", default: 5)`), a stored `nil` collapses back to `5` on the next read and cannot be observed durably.
+
+- One `DefaultsKey` per key name / NSNumber bridging
+  - A given UserDefaults key name should be owned by exactly one `DefaultsKey` type. `UserDefaults` stores `Int`/`Bool`/`Double` as `NSNumber`, which bridges leniently at the `0`/`1` boundary: a value written as `Bool true` reads back through an `Int` key as `1`, and `Int 1` reads through a `Bool` key as `true`. This is inherited Foundation behavior (shared with `@AppStorage`) and only surfaces if two keys share a name with different value types.
 
 - Performance and payload size
   - `UserDefaults` is optimized for small values and infrequent writes.
@@ -389,8 +473,8 @@ Task { @MainActor in
   - External writes from background threads are fine, but UI-bound state changes are delivered on the main actor.
 
 - Supported raw types
-  - Raw (non-Codable) keys are limited to `PropertyListValue` types supported by this package: `String`, `Int`, `Double`, `Bool`, `Data`, `Date`, arrays/dictionaries of those, and optionals thereof.
-  - If you need other types (e.g., `URL`), encode as `String`/`Data` or use a Codable key.
+  - Raw (non-Codable) keys are limited to the package's `PropertyListValue` types: `String`, `Int`, `Double`, `Bool`, `Data`, `Date`, and arrays/dictionaries of **non-optional** values, plus a top-level optional thereof. Collection-of-optional and nested-optional shapes are compile errors (see [Supported types](#supported-types)).
+  - For enums, `URL`, and `UUID`, use [`TransformedDefaultsKey`](#raw-storage-of-enums-url-and-uuid) (raw storage) or a `CodableDefaultsKey`.
 
 ## Concurrency model
 
@@ -450,6 +534,7 @@ let key = DefaultsKey<Int>("react-count", default: 0, container: .standard)
 
 - Cross-instance and cross-process synchronization
    - Observation is KVO-based and suite-scoped: components bound to different `UserDefaults` instances of the same suite stay in sync, and writes from other processes sharing an app-group suite (widgets, extensions) are observed.
-   - Sharing a single injected `UserDefaults` instance is still good practice, but no longer required for synchronization.
+   - **Same-process** writes are delivered synchronously on the writing thread (VMDefaults then hops to the main actor). **Cross-process** delivery is different: it is mediated by the preferences daemon (`cfprefsd`), so it is asynchronous and *eventually* consistent — most reliable in the foreground and not guaranteed while a process is suspended/backgrounded. Treat cross-process streams as a "latest value" feed, not a real-time event log.
+   - Within a process, sharing a single injected `UserDefaults` instance is still good practice but no longer required for synchronization.
    
 

@@ -10,7 +10,8 @@ import Foundation
 import VMDefaults
 
 // Use an isolated suite so we don't write to UserDefaults.standard in examples.
-let nonObsSuite = UserDefaults(suiteName: "VMDefaults.Examples.NonObs")!
+// `nonisolated(unsafe)`: UserDefaults is thread-safe but not `Sendable`, so a global needs the opt-out.
+nonisolated(unsafe) let nonObsSuite = UserDefaults(suiteName: "VMDefaults.Examples.NonObs")!
 
 let rawKey = DefaultsKey<Int>("nonobs-raw", default: 42, container: nonObsSuite)
 let optKey = DefaultsKey<String?>("nonobs-opt", default: nil, container: nonObsSuite)

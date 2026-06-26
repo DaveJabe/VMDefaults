@@ -20,7 +20,7 @@ struct CompileTimeGuards {
         // This test intentionally does nothing at runtime. It exists to accompany
         // the #if false block below that contains code which should fail to compile
         // if uncommented, demonstrating the intended constraint.
-        #expect(true)
+        #expect(Bool(true))
     }
 }
 
@@ -72,4 +72,19 @@ final class BadVM: ObservableObject {
         )
     }
 }
+
+// These should fail: collection-of-optional and nested-optional shapes are *not*
+// PropertyListValue. They compile under a naive `Element: PropertyListValue` bound but write a
+// property list containing a null, which CoreFoundation rejects with abort(). Constraining
+// collection elements to `NonOptionalPropertyListValue` turns them into compile errors.
+// Error: "requires that 'Int?' conform to 'NonOptionalPropertyListValue'".
+let badArrayOfOptional = DefaultsKey<[Int?]>("compile-fail-array-optional", default: [])
+let badDictOfOptional = DefaultsKey<[String: Int?]>("compile-fail-dict-optional", default: [:])
+let badNestedOptional = DefaultsKey<Int??>("compile-fail-nested-optional", default: nil)
+
+// These remain valid (documented as supported): top-level Optional, and nested *non-optional*
+// collections.
+let okOptional = DefaultsKey<Int?>("ok-optional", default: nil)
+let okNestedArray = DefaultsKey<[[Int]]>("ok-nested-array", default: [])
+let okOptionalArray = DefaultsKey<[Int]?>("ok-optional-array", default: nil)
 #endif

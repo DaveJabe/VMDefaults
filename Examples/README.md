@@ -2,9 +2,11 @@
 
 This folder contains small, focused code snippets that demonstrate how to use VMDefaults.
 
-These files are not part of the library target by default. You can:
-- Open them for reference, or
-- Add them to a sample app target / playground to run the snippets.
+These files are compiled by the package's `Examples` target (so they cannot drift from the public
+API — `swift build` and CI type-check them), but they are **not** exposed as a product and contain
+no executable entry point. You can:
+- Open them for reference,
+- Call the `demo…()` functions from a sample app target / playground to run the snippets.
 
 ## Files:
 - 01_DefiningKeys.swift — Create strongly-typed `DefaultsKey` values (raw, optional, Codable, and custom containers)

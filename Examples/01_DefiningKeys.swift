@@ -33,8 +33,10 @@ let settingsKey = CodableDefaultsKey<ExampleSettings>(
 
 // MARK: - Custom container (suite)
 
-// Use a suite to isolate reads/writes from UserDefaults.standard
-let examplesSuite = UserDefaults(suiteName: "VMDefaults.Examples")!
+// Use a suite to isolate reads/writes from UserDefaults.standard.
+// `nonisolated(unsafe)`: UserDefaults is documented thread-safe but not marked `Sendable`, so a
+// global of it needs an explicit opt-out under Swift 6 (the same reasoning VMDefaults' keys use).
+nonisolated(unsafe) let examplesSuite = UserDefaults(suiteName: "VMDefaults.Examples")!
 
 let suiteKey = DefaultsKey<String?>(
     "examples-suiteScoped",
