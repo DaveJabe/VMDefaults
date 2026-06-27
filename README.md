@@ -50,7 +50,7 @@ VMDefaults provides lightweight property wrappers that:
 
 ### Why not `@Observable`?
 
-- The Observation macro has a different invalidation model and does not require manual bridging
+- The Observation macro tracks property reads/writes directly, so it invalidates views automatically — there is no `objectWillChange` to fire and nothing to bridge. VMDefaults exists to fire `objectWillChange` correctly for `ObservableObject`, which is exactly the work `@Observable` removes. (See [Using `@Observable`](#using-observable-observation-framework) for how the package's lower-level APIs still help an `@Observable` codebase.)
 
 ### Why the complexity?
 
@@ -88,9 +88,9 @@ VMDefaults provides lightweight property wrappers that:
 - A replacement for `@AppStorage`
 - A database or persistence layer
 - A reactive framework
-- Compatible with the `@Observable` macro (by design)
+- Compatible with the `@Observable` macro (by design — see below)
 
-If your app is fully using `@Observable`, you do not need this package.
+If your app is fully on `@Observable`, you don't need the `@ObservableUserDefault` wrapper — the macro already handles view invalidation. The package's lower-level key and stream APIs can still help with persistence and cross-process sync; see [Using `@Observable`](#using-observable-observation-framework).
 
 ---
 
@@ -434,7 +434,44 @@ for await value in key.debouncedUpdates(for: .milliseconds(300)) {
 
 ### Using `@Observable` (Observation framework)
 
-`@ObservableUserDefault` targets `ObservableObject` by design. If your app uses the `@Observable` macro (iOS 17+), drive a plain `@Observable` property from a key's `distinctUpdates()` stream and write back with `set(_:)`. See `Examples/06_ObservableMacroRecipe.swift` for the full recipe.
+SwiftUI has **two** observation systems, and VMDefaults' `@ObservableUserDefault` wrapper is built for the older one. Understanding why clarifies when (not) to reach for it.
+
+- **`ObservableObject`** (Combine-based) invalidates views through a single `objectWillChange` publisher. Something has to *fire that signal at the right time* — `@Published` does it in its `willSet`. Invalidation is object-grained and signal-driven.
+- **`@Observable`** (Observation macro, iOS 17+) rewrites each stored property so reads are tracked and writes call `withMutation`. SwiftUI re-renders only the views that actually read a changed property. There's **no `objectWillChange`, no `@Published`, no Combine** — invalidation is automatic and per-property.
+
+`@ObservableUserDefault`'s entire job is to fire `objectWillChange` correctly for a `UserDefaults`-backed property — on local writes, on external/cross-process writes (via KVO), de-duplicated, on the main actor. That plumbing **is** the product.
+
+**Under `@Observable` that job disappears**, so the wrapper is both unnecessary and structurally incompatible:
+
+- *Unnecessary* — a `UserDefaults`-backed property is just a normal stored property the macro already tracks; assigning it invalidates views automatically. Nothing to bridge.
+- *Incompatible by design* — the wrapper works through a subscript constrained to `EnclosingSelf: ObservableObject where ObjectWillChangePublisher == ObservableObjectPublisher`. An `@Observable` class is not an `ObservableObject` and has no `objectWillChange`, so the wrapper can't be applied there (it falls through to its `@available(*, unavailable)` accessor — a compile error). It *requires* the very machinery `@Observable` deliberately omits.
+
+**But the rest of VMDefaults still helps `@Observable` codebases.** `@Observable` automates *invalidation*, but it does nothing for the two things VMDefaults' lower-level, non-`ObservableObject` primitives cover: **persistence** and **reacting to external / cross-process writes** (a widget or extension changing a shared app-group value). `DefaultsKey.get()/set()` and the `updates()`/`distinctUpdates()`/`publisher()` streams work fine from an `@Observable` class. The recipe: hold a plain `@Observable` property, write through with `set(_:)`, and drive it from `key.distinctUpdates()` so external writes flow in:
+
+```swift
+@Observable @MainActor
+final class ThemeStore {
+    private(set) var themeName: String
+    @ObservationIgnored private let key = DefaultsKey("theme", default: "system")
+    @ObservationIgnored private var bridge: Task<Void, Never>?
+
+    init() {
+        themeName = key.get()
+        let stream = key.distinctUpdates()
+        bridge = Task { @MainActor [weak self] in
+            for await value in stream {
+                guard let self, self.themeName != value else { continue } // avoid a redundant mutation
+                self.themeName = value
+            }
+        }
+    }
+
+    func setTheme(_ name: String) { key.set(name); themeName = name }
+    deinit { bridge?.cancel() }
+}
+```
+
+See `Examples/06_ObservableMacroRecipe.swift` for the full, compiled version.
 
 ## Known limitations
 
