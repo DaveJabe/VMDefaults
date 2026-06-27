@@ -10,7 +10,8 @@ import Foundation
 import Combine
 import VMDefaults
 
-let obsSuite = UserDefaults(suiteName: "VMDefaults.Examples.Observable")!
+// `nonisolated(unsafe)`: UserDefaults is thread-safe but not `Sendable`, so a global needs the opt-out.
+nonisolated(unsafe) let obsSuite = UserDefaults(suiteName: "VMDefaults.Examples.Observable")!
 
 // MARK: - Raw value example
 

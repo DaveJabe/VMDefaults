@@ -1,20 +1,41 @@
 import Foundation
 
 /// Marker protocol for values that can be stored directly in UserDefaults as property-list types.
+///
+/// You may conform your own types (e.g. `extension MyScalar: PropertyListValue {}`). If such a type
+/// is used as an Array element, Dictionary value, or Optional `Wrapped` — i.e. inside a collection
+/// or optional — it must **also** conform to ``NonOptionalPropertyListValue`` (the bound on those
+/// containers tightened in a recent release to make `[Int?]`/`Int??` compile errors). Conform to
+/// `NonOptionalPropertyListValue` instead and you get both, since it refines `PropertyListValue`.
 public protocol PropertyListValue {}
 
-// Primitive property-list types
-extension String: PropertyListValue {}
-extension Int: PropertyListValue {}
-extension Double: PropertyListValue {}
-extension Bool: PropertyListValue {}
-extension Data: PropertyListValue {}
-extension Date: PropertyListValue {}
+/// Marker for property-list values that are **not** `Optional`.
+///
+/// Collection *elements* are constrained to this (rather than to `PropertyListValue`) so that
+/// shapes like `[Int?]`, `[String: Int?]`, and `Int??` — which are legal property-list *types*
+/// only at the top level — become compile-time errors instead of runtime crashes.
+///
+/// Why this matters: an `Array`/`Dictionary` whose elements are `Optional` round-trips through
+/// `UserDefaults.set(_:forKey:)` as a CoreFoundation property list containing a null, which
+/// `_CFPrefsValidateValueForKey` rejects by calling `abort()` (a hard process termination, in
+/// release builds too). A *top-level* Optional is fine because VMDefaults maps `nil` to
+/// `removeObject(forKey:)` before it ever reaches CoreFoundation. Constraining elements to
+/// `NonOptionalPropertyListValue` turns the dangerous shapes into compile errors while leaving
+/// `[Int]`, `[[Int]]`, `[String: [Int]]`, `Int?`, and `[Int]?` fully supported.
+public protocol NonOptionalPropertyListValue: PropertyListValue {}
 
-// Collections
-extension Array: PropertyListValue where Element: PropertyListValue {}
-extension Dictionary: PropertyListValue where Key == String, Value: PropertyListValue {}
+// Primitive property-list types (all non-optional).
+extension String: NonOptionalPropertyListValue {}
+extension Int: NonOptionalPropertyListValue {}
+extension Double: NonOptionalPropertyListValue {}
+extension Bool: NonOptionalPropertyListValue {}
+extension Data: NonOptionalPropertyListValue {}
+extension Date: NonOptionalPropertyListValue {}
 
-// Optional wrapper
-extension Optional: PropertyListValue where Wrapped: PropertyListValue {}
+// Collections: elements/values must themselves be *non-optional* property-list values.
+extension Array: PropertyListValue, NonOptionalPropertyListValue where Element: NonOptionalPropertyListValue {}
+extension Dictionary: PropertyListValue, NonOptionalPropertyListValue where Key == String, Value: NonOptionalPropertyListValue {}
 
+// Optional is supported only at the *top level* (its `nil` maps to `removeObject`), so its
+// `Wrapped` must be non-optional — which also makes nested optionals (`Int??`) unrepresentable.
+extension Optional: PropertyListValue where Wrapped: NonOptionalPropertyListValue {}

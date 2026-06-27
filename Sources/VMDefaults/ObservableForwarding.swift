@@ -37,3 +37,17 @@ func _token(on instance: AnyObject, id: String) -> _DefaultsBindingToken {
     storage.tokensByID[id] = token
     return token
 }
+
+#if DEBUG
+/// Test-only: returns the live binding tokens currently attached to `instance` (one per bound
+/// `@ObservableUserDefault` property). Tests weak-reference a token and assert it deallocates with
+/// its view model — a direct regression guard against the `ensureBound` retain cycle that a
+/// `weak var vm` cannot catch (the leaked token captured `instance` weakly, so the VM still died).
+@MainActor
+func _bindingTokens(of instance: AnyObject) -> [_DefaultsBindingToken] {
+    guard let storage = objc_getAssociatedObject(instance, &_defaultsBindingStorageKey) as? _DefaultsBindingStorage else {
+        return []
+    }
+    return Array(storage.tokensByID.values)
+}
+#endif

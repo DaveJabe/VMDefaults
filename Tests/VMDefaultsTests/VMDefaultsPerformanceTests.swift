@@ -10,7 +10,12 @@ import Testing
 import Combine
 @testable import VMDefaults
 
-@Suite("VMDefaults - Performance")
+/// These are **bulk-write correctness** tests, not benchmarks: they assert that high-volume
+/// sequential local and external writes converge to the correct final value (and stay consistent
+/// with the raw stored representation). The measured durations are only `print`ed for manual
+/// inspection — no wall-clock threshold is asserted (that would flake on shared CI). For true
+/// regression benchmarking, move these to an XCTest target using `measure(metrics:)` with a baseline.
+@Suite("VMDefaults - Bulk write correctness")
 struct VMDefaultsPerformanceTests {
 
     @Test("Bulk sequential local writes and reads - Observable")
