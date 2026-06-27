@@ -33,6 +33,13 @@ public struct TransformedDefaultsKey<Value: Sendable, Stored: PropertyListValue 
     let encode: @Sendable (Value) -> Stored
     let decode: @Sendable (Stored) -> Value?
 
+    /// Creates a key with custom transforms.
+    ///
+    /// > Important: When used with `@ObservableUserDefault`, the transforms should be **round-trip
+    /// > lossless** (`decode(encode(x)) == x`). The wrapper re-reads the persisted value after the
+    /// > KVO change a local write triggers; if the round-trip is lossy (e.g. `encode` lowercases),
+    /// > the in-memory value will be replaced by the canonicalized form and an extra SwiftUI update
+    /// > will fire. The built-in `rawRepresentable:`/`url:`/`uuid:` constructors are all lossless.
     public init(
         name: String,
         default defaultValue: Value,
@@ -112,12 +119,6 @@ public extension TransformedDefaultsKey {
     @MainActor
     func set(_ value: Value) {
         _writeRaw(to: container, key: name, newValue: encode(value))
-    }
-
-    /// Removes the stored value, so subsequent reads return the key's `defaultValue`.
-    @MainActor
-    func reset() {
-        container.removeObject(forKey: name)
     }
 }
 

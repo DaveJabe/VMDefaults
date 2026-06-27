@@ -45,12 +45,15 @@ final class DefaultsBox<Value: Equatable & Sendable> {
     @Published private(set) var value: Value
 
     #if DEBUG
-    /// Set by the wrapper's `ensureBound` once change-forwarding is installed. Used only to emit
-    /// a one-time debug warning when an external write refreshes a box whose SwiftUI forwarding
-    /// was never activated — the classic "forgot `activateDefaultsBindings()` / `_ = property`"
-    /// trap where the value silently updates but SwiftUI never re-renders.
+    /// Set by the forwarding layer (`ObservableUserDefault.ensureBound`) once change-forwarding is
+    /// installed. The box stays storage-agnostic and SwiftUI-unaware: it only tracks whether *some*
+    /// consumer is forwarding its changes.
     var hasForwardingBinding = false
-    private var didWarnUnbound = false
+    /// Invoked once, the first time an external write refreshes this box while no forwarding is
+    /// installed. The owning layer supplies the (SwiftUI-specific) diagnostic message — the box
+    /// itself holds no knowledge of SwiftUI/ObservableObject.
+    var onUnboundExternalChange: (@MainActor () -> Void)?
+    private var didReportUnbound = false
     #endif
 
     init(
@@ -85,14 +88,9 @@ final class DefaultsBox<Value: Equatable & Sendable> {
         guard latest != value else { return }
         value = latest
         #if DEBUG
-        if !hasForwardingBinding && !didWarnUnbound {
-            didWarnUnbound = true
-            print("""
-            [VMDefaults] An external UserDefaults write changed a property whose \
-            @ObservableUserDefault change-forwarding was never activated, so SwiftUI will not \
-            re-render for it. Call `activateDefaultsBindings()` in your view model's init (or read \
-            the property once) to enable forwarding. (DEBUG-only; fires at most once per property.)
-            """)
+        if !hasForwardingBinding && !didReportUnbound {
+            didReportUnbound = true
+            onUnboundExternalChange?()
         }
         #endif
     }

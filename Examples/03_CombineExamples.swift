@@ -17,7 +17,7 @@ nonisolated(unsafe) let combineSuite = UserDefaults(suiteName: "VMDefaults.Examp
 let combineKey = DefaultsKey<Int>("combine-counter", default: 0, container: combineSuite)
 
 @MainActor
-func demoCombinePublishers() {
+func demoCombinePublishers() async {
     var combineCancellables: Set<AnyCancellable> = []
 
     // Subscribe to distinctPublisher to avoid duplicate consecutive values
@@ -39,6 +39,9 @@ func demoCombinePublishers() {
     combineSuite.set(1, forKey: combineKey.name)
     combineSuite.set(2, forKey: combineKey.name)
 
-    _ = combineCancellables // keep subscriptions alive for the duration of this snippet
+    // publisher() delivers via DispatchQueue.main, so the updates for 1 and 2 arrive on a later
+    // runloop turn — wait briefly (keeping the cancellables alive) so the snippet actually prints them.
+    try? await Task.sleep(for: .milliseconds(50))
+    _ = combineCancellables
 }
 

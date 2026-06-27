@@ -9,7 +9,9 @@ import Foundation
 
 // MARK: - reset() / isStored
 
-public extension DefaultsKey where Value: PropertyListValue {
+// Defined once on the shared `AnyDefaultsKey` protocol so the behavior cannot drift, and so every
+// key type (`DefaultsKey`, `CodableDefaultsKey`, `TransformedDefaultsKey`) gets them uniformly.
+public extension AnyDefaultsKey {
     /// Removes the stored value for this key from its container, so subsequent reads return the
     /// key's `defaultValue`. Equivalent to `set(.none)` for an Optional key. (`reset` and the
     /// common name `remove` are the same operation here.)
@@ -26,30 +28,18 @@ public extension DefaultsKey where Value: PropertyListValue {
     }
 }
 
-public extension CodableDefaultsKey {
-    /// Removes the stored value for this key from its container, so subsequent reads return the
-    /// key's `defaultValue`.
-    @MainActor
-    func reset() {
-        container.removeObject(forKey: name)
-    }
-
-    /// Whether a value is currently stored for this key in its container, independent of the default.
-    @MainActor
-    var isStored: Bool {
-        container.object(forKey: name) != nil
-    }
-}
-
 // MARK: - App-group helper
 
 public extension UserDefaults {
-    /// Returns the `UserDefaults` for an app-group suite, or `nil` if `identifier` is invalid or
-    /// the process lacks the App Groups entitlement for it.
+    /// Returns the `UserDefaults` for an app-group suite, or `nil` for a reserved/invalid suite
+    /// name (e.g. the main bundle identifier or `NSGlobalDomain`).
     ///
-    /// Prefer this over `UserDefaults(suiteName:)!`: the force-unwrap is a real crash hazard in
-    /// extensions/widgets where a misconfigured entitlement returns `nil`. Pair with VMDefaults'
-    /// suite-scoped, cross-process observation to share defaults with widgets and extensions:
+    /// This is a thin, discoverable wrapper over `UserDefaults(suiteName:)` that avoids the
+    /// `UserDefaults(suiteName:)!` force-unwrap. Note: a **missing or misconfigured App Groups
+    /// entitlement does not return `nil`** — `UserDefaults(suiteName:)` cannot detect that and
+    /// instead returns a working-but-privately-backed, non-shared store, so writes silently fail
+    /// to reach widgets/extensions. This helper only removes the crash; it cannot validate the
+    /// entitlement. Pair with VMDefaults' suite-scoped, cross-process observation:
     ///
     /// ```swift
     /// guard let shared = UserDefaults.appGroup("group.com.example.app") else { return }

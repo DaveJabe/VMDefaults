@@ -32,11 +32,14 @@ final class ThemeStore {
     init() {
         themeName = key.get()
 
-        // Bridge external UserDefaults changes into the @Observable property.
+        // Bridge external UserDefaults changes into the @Observable property. Dedup against the
+        // current property value so the stream's echo of a local change (setTheme already assigned
+        // it) doesn't trigger a second, redundant @Observable mutation.
         let stream = key.distinctUpdates()
         bridge = Task { @MainActor [weak self] in
             for await value in stream {
-                self?.themeName = value
+                guard let self, self.themeName != value else { continue }
+                self.themeName = value
             }
         }
     }

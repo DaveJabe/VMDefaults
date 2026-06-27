@@ -26,6 +26,9 @@ func _debounced<Value: Sendable>(_ upstream: AsyncStream<Value>, for interval: D
                     continuation.yield(value)
                 }
             }
+            // On natural upstream completion, drop any value still inside its quiet window rather
+            // than flushing it — matching Combine's `.debounce`. (Today's callers feed the infinite
+            // `updates()` stream, which only ends via cancellation, where dropping is correct.)
             pending?.cancel()
             continuation.finish()
         }

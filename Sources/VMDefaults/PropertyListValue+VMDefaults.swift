@@ -1,6 +1,12 @@
 import Foundation
 
 /// Marker protocol for values that can be stored directly in UserDefaults as property-list types.
+///
+/// You may conform your own types (e.g. `extension MyScalar: PropertyListValue {}`). If such a type
+/// is used as an Array element, Dictionary value, or Optional `Wrapped` — i.e. inside a collection
+/// or optional — it must **also** conform to ``NonOptionalPropertyListValue`` (the bound on those
+/// containers tightened in a recent release to make `[Int?]`/`Int??` compile errors). Conform to
+/// `NonOptionalPropertyListValue` instead and you get both, since it refines `PropertyListValue`.
 public protocol PropertyListValue {}
 
 /// Marker for property-list values that are **not** `Optional`.

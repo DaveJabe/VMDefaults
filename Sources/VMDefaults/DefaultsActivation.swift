@@ -48,8 +48,16 @@ public extension ObservableObject where ObjectWillChangePublisher == ObservableO
     /// is safe (each property binds at most once).
     @MainActor
     func activateDefaultsBindings() {
-        for child in Mirror(reflecting: self).children {
-            (child.value as? _DefaultsActivatable)?._activate(on: self)
+        // Walk the full superclass chain: a @ObservableUserDefault declared on a base class lives
+        // under `superclassMirror`, not in the leaf type's `children`, so reflecting only the leaf
+        // would silently never activate inherited properties. _activate is idempotent (binds at
+        // most once), so re-visiting is safe.
+        var mirror: Mirror? = Mirror(reflecting: self)
+        while let current = mirror {
+            for child in current.children {
+                (child.value as? _DefaultsActivatable)?._activate(on: self)
+            }
+            mirror = current.superclassMirror
         }
     }
 }

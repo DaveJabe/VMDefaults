@@ -211,7 +211,7 @@ final class CounterVM: ObservableObject {
 > property, but `activateDefaultsBindings()` is preferred — it's discoverable, covers all
 > properties, and isn't silently stripped by linters. In DEBUG builds, an external write to an
 > unactivated property logs a one-time warning.)
-```
+
 #### Publishing semantics
 
 - Local writes publish only when the value actually changes.

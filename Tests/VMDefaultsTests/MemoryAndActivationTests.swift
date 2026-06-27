@@ -34,6 +34,26 @@ private final class ActivatedVM: ObservableObject {
     }
 }
 
+/// A base view model with a wrapped property, subclassed below — exercises superclass reflection.
+@MainActor
+private class BaseSettingsVM: ObservableObject {
+    @ObservableUserDefault var baseFlag: Bool
+    init(_ container: UserDefaults) {
+        _baseFlag = ObservableUserDefault(DefaultsKey("base-flag", default: false, container: container))
+        // Activation intentionally deferred to the subclass's init.
+    }
+}
+
+@MainActor
+private final class DerivedSettingsVM: BaseSettingsVM {
+    @ObservableUserDefault var derivedCount: Int
+    init(container: UserDefaults) {
+        _derivedCount = ObservableUserDefault(DefaultsKey("derived-count", default: 0, container: container))
+        super.init(container)
+        activateDefaultsBindings()
+    }
+}
+
 /// A VM with several wrapped properties of different types, activated together.
 @MainActor
 private final class MultiVM: ObservableObject {
@@ -186,6 +206,24 @@ struct ActivationTests {
         defaults.set(42, forKey: key.name)
         #expect(await waiter.value)
         #expect(vm.value == 42)
+    }
+
+    @MainActor
+    @Test("activateDefaultsBindings() activates a @ObservableUserDefault declared on a superclass")
+    func activatesInheritedProperties() async {
+        let defaults = makeIsolatedDefaults()
+        let vm = DerivedSettingsVM(container: defaults)
+
+        // Two tokens: one for the inherited property, one for the derived property — proving the
+        // reflection walks the superclass mirror chain, not just the leaf type's own children.
+        #expect(_bindingTokens(of: vm).count == 2)
+
+        // An external write to the SUPERCLASS-declared key must forward.
+        let waiter = startWillChangeWaiter(vm)
+        await yieldForSubscriptionInstall()
+        defaults.set(true, forKey: "base-flag")
+        #expect(await waiter.value)
+        #expect(vm.baseFlag == true)
     }
 }
 

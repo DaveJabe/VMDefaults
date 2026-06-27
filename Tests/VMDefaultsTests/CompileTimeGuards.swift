@@ -24,6 +24,14 @@ struct CompileTimeGuards {
     }
 }
 
+// POSITIVE guards — these are real, compiled top-level declarations (global `let`s are type-checked
+// regardless of use). They fail the build if a future edit regresses conformance for a *supported*
+// shape: a top-level Optional, a nested non-optional collection, or an optional-of-collection.
+let okOptional = DefaultsKey<Int?>("ok-optional", default: nil)
+let okNestedArray = DefaultsKey<[[Int]]>("ok-nested-array", default: [])
+let okOptionalArray = DefaultsKey<[Int]?>("ok-optional-array", default: nil)
+let okDictOfArray = DefaultsKey<[String: [Int]]>("ok-dict-of-array", default: [:])
+
 // The following code intentionally does not compile and is wrapped in #if false.
 // It documents that DefaultsKey is restricted to PropertyListValue and cannot be
 // used with Codable types, and that there is no ObservableUserDefault initializer
@@ -78,13 +86,9 @@ final class BadVM: ObservableObject {
 // property list containing a null, which CoreFoundation rejects with abort(). Constraining
 // collection elements to `NonOptionalPropertyListValue` turns them into compile errors.
 // Error: "requires that 'Int?' conform to 'NonOptionalPropertyListValue'".
+// These collection-of-optional / nested-optional shapes must NOT compile (they would store a null
+// and abort CoreFoundation). The positive counterparts are compiled at top level above.
 let badArrayOfOptional = DefaultsKey<[Int?]>("compile-fail-array-optional", default: [])
 let badDictOfOptional = DefaultsKey<[String: Int?]>("compile-fail-dict-optional", default: [:])
 let badNestedOptional = DefaultsKey<Int??>("compile-fail-nested-optional", default: nil)
-
-// These remain valid (documented as supported): top-level Optional, and nested *non-optional*
-// collections.
-let okOptional = DefaultsKey<Int?>("ok-optional", default: nil)
-let okNestedArray = DefaultsKey<[[Int]]>("ok-nested-array", default: [])
-let okOptionalArray = DefaultsKey<[Int]?>("ok-optional-array", default: nil)
 #endif

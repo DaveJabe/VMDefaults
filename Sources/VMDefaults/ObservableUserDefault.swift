@@ -25,11 +25,35 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
     private let tokenID = UUID().uuidString
     private let onError: (@Sendable (Error) -> Void)?
 
+    /// Builds the backing box and (in DEBUG) installs the SwiftUI-specific "forwarding never
+    /// activated" diagnostic. Keeping the message here — in the SwiftUI-aware wrapper — lets
+    /// `DefaultsBox` stay storage-agnostic and SwiftUI-unaware.
+    private static func _makeBox(
+        container: UserDefaults,
+        key: String,
+        initialValue: Value,
+        read: @escaping @MainActor () -> Value,
+        write: @escaping @MainActor (Value) -> Void
+    ) -> DefaultsBox<Value> {
+        let box = DefaultsBox(container: container, key: key, initialValue: initialValue, read: read, write: write)
+        #if DEBUG
+        box.onUnboundExternalChange = {
+            print("""
+            [VMDefaults] An external UserDefaults write changed a property whose @ObservableUserDefault \
+            change-forwarding was never activated, so SwiftUI will not re-render for it. Call \
+            `activateDefaultsBindings()` in your view model's init (or read the property once) to enable \
+            forwarding. (DEBUG-only; fires at most once per property.)
+            """)
+        }
+        #endif
+        return box
+    }
+
     public init(_ key: DefaultsKey<Value>) where Value: PropertyListValue {
         let initial = _readRaw(from: key.container, key: key.name, defaultValue: key.defaultValue)
         self.onError = nil
 
-        self.box = DefaultsBox(
+        self.box = Self._makeBox(
             container: key.container,
             key: key.name,
             initialValue: initial,
@@ -42,7 +66,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
         let initial = _readRaw(from: container, key: key, defaultValue: defaultValue)
         self.onError = nil
 
-        self.box = DefaultsBox(
+        self.box = Self._makeBox(
             container: container,
             key: key,
             initialValue: initial,
@@ -62,7 +86,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
         let name = key.name
         let defaultValue = key.defaultValue
 
-        self.box = DefaultsBox(
+        self.box = Self._makeBox(
             container: container,
             key: name,
             initialValue: _readCodable(from: container, key: name, defaultValue: defaultValue, decoder: decoder, onError: onError),
@@ -81,7 +105,7 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
     ) where Value: Codable {
         self.onError = onError
 
-        self.box = DefaultsBox(
+        self.box = Self._makeBox(
             container: container,
             key: key,
             initialValue: _readCodable(from: container, key: key, defaultValue: defaultValue, decoder: decoder, onError: onError),
@@ -94,26 +118,15 @@ public struct ObservableUserDefault<Value: Equatable & Sendable> {
     /// as a native property-list scalar) into an `ObservableObject` view model.
     public init<Stored: PropertyListValue & Sendable>(_ key: TransformedDefaultsKey<Value, Stored>) {
         self.onError = nil
-        let container = key.container
-        let name = key.name
-        let defaultValue = key.defaultValue
-        let encode = key.encode
-        let decode = key.decode
-
-        let read: @MainActor () -> Value = {
-            guard container.object(forKey: name) != nil else { return defaultValue }
-            return decode(_readRaw(from: container, key: name, defaultValue: encode(defaultValue))) ?? defaultValue
-        }
-        let write: @MainActor (Value) -> Void = {
-            _writeRaw(to: container, key: name, newValue: encode($0))
-        }
-
-        self.box = DefaultsBox(
-            container: container,
-            key: name,
-            initialValue: read(),
-            read: read,
-            write: write
+        // Route the box read/write through the key's own get()/set() so the observable and
+        // non-observable paths share one decode/encode + missing-key-fallback implementation.
+        // TransformedDefaultsKey is Sendable, so capturing it in the @MainActor closures is safe.
+        self.box = Self._makeBox(
+            container: key.container,
+            key: key.name,
+            initialValue: key.get(),
+            read: { key.get() },
+            write: { key.set($0) }
         )
     }
 
