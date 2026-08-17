@@ -73,6 +73,19 @@ final class DefaultsBox<Value: Equatable & Sendable> {
             // latest != value), so burst changes all resolve to a single value update at most.
             Task { @MainActor [weak self] in self?.coalescedRefresh() }
         }
+
+        // Close the "snapshot → addObserver" window: `initialValue` was read by the caller
+        // *before* the observation above was registered, so an external write landing in
+        // between fires no KVO and would otherwise leave this box stale until the *next*
+        // write (e.g. a widget writing to an app-group suite during app launch). One re-read
+        // after installation guarantees convergence: a write before this line is picked up
+        // here; a write after it is seen by the observer. (Inline rather than via
+        // coalescedRefresh() so the DEBUG "unbound external change" diagnostic — which cannot
+        // meaningfully apply during init, before any forwarding could possibly be installed —
+        // does not fire for init-window writes. No subscriber exists yet, so this publishes
+        // to nobody; it only corrects the initial value.)
+        let latest = read()
+        if latest != value { value = latest }
     }
 
     // No explicit deinit needed: dropping `observation` invalidates the KVO registration.

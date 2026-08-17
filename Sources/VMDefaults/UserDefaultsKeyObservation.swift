@@ -56,6 +56,27 @@ final class UserDefaultsKeyObservation: NSObject, @unchecked Sendable {
         !key.contains(".") && !key.hasPrefix("@")
     }
 
+    #if DEBUG
+    /// Test-only seam: invoked synchronously with `(defaults, key)` immediately **before** the KVO
+    /// observer is registered. Lets tests deterministically interleave a write into the
+    /// "snapshot → addObserver" installation window (the race a launch-time widget write can hit)
+    /// instead of relying on a wall-clock stress interleave. Lock-guarded because observations are
+    /// created from arbitrary isolation domains (main-actor boxes/streams, publisher subscriptions).
+    private static let _beforeInstallHookLock = NSLock()
+    nonisolated(unsafe) private static var _beforeInstallHook: (@Sendable (UserDefaults, String) -> Void)?
+    static func _setBeforeInstallHook(_ hook: (@Sendable (UserDefaults, String) -> Void)?) {
+        _beforeInstallHookLock.lock()
+        defer { _beforeInstallHookLock.unlock() }
+        _beforeInstallHook = hook
+    }
+    private static func _invokeBeforeInstallHook(defaults: UserDefaults, key: String) {
+        _beforeInstallHookLock.lock()
+        let hook = _beforeInstallHook
+        _beforeInstallHookLock.unlock()
+        hook?(defaults, key)
+    }
+    #endif
+
     init(defaults: UserDefaults, key: String, handler: @escaping @Sendable () -> Void) {
         assert(
             Self.isKVCObservable(key),
@@ -65,6 +86,9 @@ final class UserDefaultsKeyObservation: NSObject, @unchecked Sendable {
         self.key = key
         self.handler = handler
         super.init()
+        #if DEBUG
+        Self._invokeBeforeInstallHook(defaults: defaults, key: key)
+        #endif
         defaults.addObserver(self, forKeyPath: key, options: [], context: nil)
     }
 
